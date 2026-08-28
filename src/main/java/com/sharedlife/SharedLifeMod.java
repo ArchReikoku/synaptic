@@ -36,10 +36,7 @@ public final class SharedLifeMod implements ModInitializer {
     private static final ItemStack[] sharedInventory = emptyInventory();
     private static final List<DamageReport> pendingDamage = new ArrayList<>();
     private static float sharedHealth;
-    // Kept fractional even though the bar itself is whole drumsticks: with the
-    // drain split N ways a single player's step costs a fraction of a point, and
-    // rounding that away every tick would mean the group never gets hungry.
-    private static float sharedFood;
+    private static int sharedFood;
     private static float sharedSaturation;
     private static float sharedAbsorption;
     private static int sharedXpLevel;
@@ -47,6 +44,12 @@ public final class SharedLifeMod implements ModInitializer {
     private static int sharedXpTotal;
     private static boolean initialized;
     private static int tick;
+    private static volatile int playerCount = 1;
+
+    /** How many ways the hunger cost of moving around is split. See FoodDataMixin. */
+    public static int sharedPlayerCount() {
+        return Math.max(1, playerCount);
+    }
 
     @Override
     public void onInitialize() {
@@ -64,6 +67,7 @@ public final class SharedLifeMod implements ModInitializer {
     private static void tick(MinecraftServer server) {
         allowSoloSleep(server);
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
+        playerCount = players.size();
         if (players.isEmpty()) {
             lastStates.clear();
             lastInventories.clear();
@@ -91,7 +95,7 @@ public final class SharedLifeMod implements ModInitializer {
         for (ServerPlayer player : players) {
             applySharedState(player);
             lastStates.put(player.getUUID(), new PlayerState(
-                sharedHealth, foodLevel(), sharedSaturation, sharedAbsorption,
+                sharedHealth, sharedFood, sharedSaturation, sharedAbsorption,
                 sharedXpLevel, sharedXpProgress, sharedXpTotal));
             lastInventories.put(player.getUUID(), snapshot(player));
         }
@@ -156,11 +160,6 @@ public final class SharedLifeMod implements ModInitializer {
         return attacker != null ? attacker.getName().getString() : source.getMsgId();
     }
 
-    /** The whole drumsticks the bar can actually show. */
-    private static int foodLevel() {
-        return (int) sharedFood;
-    }
-
     /** Health is counted in half-heart points internally; chat speaks in hearts. */
     private static String hearts(float healthPoints) {
         float value = Math.round(healthPoints / 2.0F * 10.0F) / 10.0F;
@@ -185,7 +184,7 @@ public final class SharedLifeMod implements ModInitializer {
             xpPointTotal += player.totalExperience;
         }
         sharedHealth = healthTotal / players.size();
-        sharedFood = (float) foodTotal / players.size();
+        sharedFood = Math.round((float) foodTotal / players.size());
         sharedSaturation = saturationTotal / players.size();
         sharedAbsorption = absorptionTotal / players.size();
         sharedXpLevel = xpLevelTotal / players.size();
@@ -196,10 +195,8 @@ public final class SharedLifeMod implements ModInitializer {
 
     private static void applyBarChangesFromEveryone(List<ServerPlayer> players) {
         float healthDelta = 0.0F;
-        float foodDrain = 0.0F;
-        float foodGain = 0.0F;
-        float saturationDrain = 0.0F;
-        float saturationGain = 0.0F;
+        int foodDelta = 0;
+        float saturationDelta = 0.0F;
         float absorptionDelta = 0.0F;
         int xpLevelDelta = 0;
         float xpProgressDelta = 0.0F;
@@ -208,24 +205,20 @@ public final class SharedLifeMod implements ModInitializer {
             PlayerState previous = lastStates.get(player.getUUID());
             if (previous == null) continue;
             healthDelta += player.getHealth() - previous.health;
-            int foodChange = player.getFoodData().getFoodLevel() - previous.food;
-            if (foodChange < 0) foodDrain += foodChange; else foodGain += foodChange;
-            float saturationChange = player.getFoodData().getSaturationLevel() - previous.saturation;
-            if (saturationChange < 0.0F) saturationDrain += saturationChange;
-            else saturationGain += saturationChange;
+            foodDelta += player.getFoodData().getFoodLevel() - previous.food;
+            saturationDelta += player.getFoodData().getSaturationLevel() - previous.saturation;
             absorptionDelta += player.getAbsorptionAmount() - previous.absorption;
             xpLevelDelta += player.experienceLevel - previous.xpLevel;
             xpProgressDelta += player.experienceProgress - previous.xpProgress;
             xpPointDelta += player.totalExperience - previous.xpTotal;
         }
-        // Everyone burns off one shared meal: each player's drain counts for only
-        // 1/N of a point, so four players sprinting empty the bar at the same rate
-        // one player would. Eating is NOT divided — a loaf is still a whole loaf.
-        float share = 1.0F / players.size();
+        // Drops arrive here already divided by the player count, because the split
+        // happens upstream on exhaustion (FoodDataMixin) rather than on the drop
+        // itself. So these are summed at full weight: a whole point spent is a
+        // whole point off the shared bar.
         sharedHealth = Math.max(0.0F, sharedHealth + healthDelta);
-        sharedFood = Math.max(0.0F, Math.min(20.0F, sharedFood + foodGain + foodDrain * share));
-        sharedSaturation = Math.max(0.0F, Math.min(sharedFood,
-            sharedSaturation + saturationGain + saturationDrain * share));
+        sharedFood = Math.max(0, Math.min(20, sharedFood + foodDelta));
+        sharedSaturation = Math.max(0.0F, Math.min(sharedFood, sharedSaturation + saturationDelta));
         sharedAbsorption = Math.max(0.0F, sharedAbsorption + absorptionDelta);
         sharedXpLevel += xpLevelDelta;
         sharedXpProgress += xpProgressDelta;
@@ -310,7 +303,7 @@ public final class SharedLifeMod implements ModInitializer {
 
     private static void applySharedState(ServerPlayer player) {
         player.setHealth(Math.min(sharedHealth, player.getMaxHealth()));
-        player.getFoodData().setFoodLevel(foodLevel());
+        player.getFoodData().setFoodLevel(sharedFood);
         player.getFoodData().setSaturation(sharedSaturation);
         for (MobEffectInstance active : List.copyOf(player.getActiveEffects())) {
             if (!sharedEffects.containsKey(active.getEffect())) {
