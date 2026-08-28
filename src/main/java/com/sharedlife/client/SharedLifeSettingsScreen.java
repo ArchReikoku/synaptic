@@ -1,5 +1,7 @@
 package com.sharedlife.client;
 
+import java.util.List;
+
 import com.sharedlife.config.Feature;
 import com.sharedlife.config.SharedLifeConfig;
 import com.sharedlife.net.ConfigUpdatePayload;
@@ -9,6 +11,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.layouts.GridLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -16,7 +19,7 @@ import net.minecraft.server.permissions.Permissions;
 
 /**
  * Feature toggles for the whole server, opened with the Shared Life key (K by
- * default).
+ * default). Buttons carry a short name and explain themselves on hover.
  * <p>
  * Built entirely from stock widgets laid out by a {@link GridLayout} — this
  * version of the game replaced the old immediate-mode drawing API, and letting
@@ -27,8 +30,10 @@ import net.minecraft.server.permissions.Permissions;
  * re-checks permission regardless of what this screen allows.
  */
 public final class SharedLifeSettingsScreen extends Screen {
-    private static final int BUTTON_WIDTH = 210;
-    private static final int BUTTON_HEIGHT = 20;
+    private static final int COLUMNS = 2;
+    private static final int BUTTON_WIDTH = 140;
+    private static final int ROW_HEIGHT = 20;
+    private static final int FULL_WIDTH = BUTTON_WIDTH * COLUMNS + 6;
 
     private final boolean editable;
     private int pending;
@@ -47,25 +52,26 @@ public final class SharedLifeSettingsScreen extends Screen {
 
         GridLayout grid = new GridLayout();
         grid.spacing(6);
-        GridLayout.RowHelper rows = grid.createRowHelper(2);
+        GridLayout.RowHelper rows = grid.createRowHelper(COLUMNS);
 
-        rows.addChild(new StringWidget(BUTTON_WIDTH * 2, BUTTON_HEIGHT, this.title, this.font), 2);
-        rows.addChild(new StringWidget(BUTTON_WIDTH * 2, BUTTON_HEIGHT, editable
-            ? Component.literal("Changes apply to everyone on the server").withStyle(ChatFormatting.GRAY)
+        rows.addChild(label(this.title.copy().withStyle(ChatFormatting.BOLD)), COLUMNS);
+        rows.addChild(label(editable
+            ? Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY)
             : Component.literal("Operators only — you can look, but not change")
-                .withStyle(ChatFormatting.RED), this.font), 2);
+                .withStyle(ChatFormatting.RED)), COLUMNS);
 
-        for (Feature feature : Feature.values()) {
-            Button toggle = Button.builder(labelFor(feature), button -> {
-                pending ^= feature.bit();
-                button.setMessage(labelFor(feature));
-            }).width(BUTTON_WIDTH).build();
-            toggle.active = editable;
-            rows.addChild(toggle);
-        }
-
-        if (Feature.values().length % 2 != 0) {
-            rows.addChild(new StringWidget(BUTTON_WIDTH, BUTTON_HEIGHT, Component.empty(), this.font));
+        for (Feature.Group group : Feature.Group.values()) {
+            List<Feature> features = Feature.of(group);
+            rows.addChild(label(Component.literal(group.title())
+                .withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)), COLUMNS);
+            for (Feature feature : features) {
+                rows.addChild(toggleFor(feature));
+            }
+            // The grid wants whole rows; an odd group would otherwise pull the
+            // next section's header up alongside its last button.
+            if (features.size() % COLUMNS != 0) {
+                rows.addChild(new StringWidget(BUTTON_WIDTH, ROW_HEIGHT, Component.empty(), this.font));
+            }
         }
 
         rows.addChild(Button.builder(Component.literal("Done"), button -> {
@@ -78,8 +84,22 @@ public final class SharedLifeSettingsScreen extends Screen {
             .width(BUTTON_WIDTH).build());
 
         grid.arrangeElements();
-        grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(10, (this.height - grid.getHeight()) / 2));
+        grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
         grid.visitWidgets(this::addRenderableWidget);
+    }
+
+    private Button toggleFor(Feature feature) {
+        Button toggle = Button.builder(labelFor(feature), button -> {
+            pending ^= feature.bit();
+            button.setMessage(labelFor(feature));
+        }).width(BUTTON_WIDTH).build();
+        toggle.active = editable;
+        toggle.setTooltip(Tooltip.create(Component.literal(feature.description())));
+        return toggle;
+    }
+
+    private StringWidget label(Component text) {
+        return new StringWidget(FULL_WIDTH, ROW_HEIGHT, text, this.font);
     }
 
     private Component labelFor(Feature feature) {

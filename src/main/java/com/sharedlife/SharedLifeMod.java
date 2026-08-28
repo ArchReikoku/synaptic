@@ -242,7 +242,9 @@ public final class SharedLifeMod implements ModInitializer {
             sharedFood = Math.max(0, Math.min(20, sharedFood + foodDelta));
             sharedSaturation = Math.max(0.0F, Math.min(sharedFood, sharedSaturation + saturationDelta));
         }
-        if (SharedLifeConfig.enabled(Feature.ABSORPTION)) {
+        // Golden hearts ride along with Life: they are hearts too, and splitting
+        // them out would let absorption drift away from the health it buffers.
+        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
             sharedAbsorption = Math.max(0.0F, sharedAbsorption + absorptionDelta);
         }
         if (SharedLifeConfig.enabled(Feature.EXPERIENCE)) {
@@ -361,7 +363,7 @@ public final class SharedLifeMod implements ModInitializer {
         // Golden hearts, written AFTER the effects above: re-applying a shared
         // Absorption effect tops the amount up on every apply, so the shared value
         // has to be the last word or absorption would inflate tick after tick.
-        if (SharedLifeConfig.enabled(Feature.ABSORPTION)) {
+        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
             player.setAbsorptionAmount(sharedAbsorption);
         }
         // Only on a real change: the client is resent the bar whenever
