@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "shared_life",
+  "version": "${version}",
+  "name": "Shared Life",
+  "description": "Shares health, hunger, status effects, absorption (golden hearts), experience, inventory, armor, and offhand across all online players. Announces every hit in chat and lets one sleeper skip the night.",
+  "license": "All Rights Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.sharedlife.SharedLifeMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

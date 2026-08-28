@@ -1,0 +1,62 @@
+plugins {
+	// UNOBFUSCATED MC (26.x+) toolchain.
+	// The 26.x game ships with real Mojang names, so there is NOTHING to remap:
+	//   - the plugin id is the NEW non-remap Loom id `net.fabricmc.fabric-loom`
+	//     (NOT the legacy `fabric-loom`, whose remap pipeline requires a `mappings`
+	//     configuration and dies with "Configuration 'mappings' has no dependencies"),
+	//   - there is NO `mappings "net.fabricmc:yarn:..."` line anywhere,
+	//   - loader/fabric-api are plain `implementation` (not `modImplementation`),
+	//   - the plain `jar` IS the artifact (no remapJar step exists on this path).
+	// PIN A STABLE RELEASE, never a SNAPSHOT: snapshots are mutable and re-validated
+	// against the live repo on a TTL, so a maven.fabricmc.net blip fails every build.
+	// 1.17.14 is the current final 1.17 release — immutable, cached permanently.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	maven { url 'https://maven.fabricmc.net/' }
+	// Resilience: declare mavenCentral explicitly so a fabric-maven outage can't
+	// take out resolution of loom's mavenCentral-hosted transitives.
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	// Unobfuscated: plain `implementation`, NOT modImplementation — nothing needs
+	// remapping, and the legacy mod* configurations belong to the remap pipeline.
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+	// NOTE (vs the 1.21.1 template): NO fabric-mixin-compile-extensions
+	// annotationProcessor here. That AP exists to write refmaps against yarn
+	// mappings; an unobfuscated game has no mappings and needs no refmap. Mixins
+	// still work — declare them in <modid>.mixins.json with
+	// "compatibilityLevel": "JAVA_25" and target the REAL Mojang names.
+}
+
+processResources {
+	inputs.property "version", project.version
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	// The chat messages contain a literal heart glyph; without this javac would
+	// decode the source with whatever the build machine's default charset is.
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
