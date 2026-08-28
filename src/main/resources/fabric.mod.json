@@ -4,6 +4,9 @@
   "version": "${version}",
   "name": "Shared Life",
   "description": "Shares health, hunger, status effects, absorption (golden hearts), experience, inventory, armor, and offhand across all online players. Announces every hit in chat and lets one sleeper skip the night.",
+  "authors": [
+    "Reikoku"
+  ],
   "license": "All Rights Reserved",
   "environment": "*",
   "entrypoints": {
