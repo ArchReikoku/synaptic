@@ -1,7 +1,7 @@
-package com.sharedlife.net;
+package com.synaptic.net;
 
-import com.sharedlife.SharedLifeMod;
-import com.sharedlife.config.SharedLifeConfig;
+import com.synaptic.SynapticMod;
+import com.synaptic.config.SynapticConfig;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -16,8 +16,8 @@ import net.minecraft.server.permissions.Permissions;
  * Keeps every client's copy of the settings in step with the server's, which is
  * the only authoritative one. Clients may ask for a change; the server decides.
  */
-public final class SharedLifeNetworking {
-    private SharedLifeNetworking() {
+public final class SynapticNetworking {
+    private SynapticNetworking() {
     }
 
     public static void register() {
@@ -30,26 +30,26 @@ public final class SharedLifeNetworking {
             // authority as /gamerule. A rejected client is sent the real values
             // back so its screen cannot drift out of step with the server.
             if (!player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)) {
-                ServerPlayNetworking.send(player, new ConfigSyncPayload(SharedLifeConfig.bits()));
-                player.sendSystemMessage(Component.literal("Only operators can change Shared Life settings.")
+                ServerPlayNetworking.send(player, new ConfigSyncPayload(SynapticConfig.bits()));
+                player.sendSystemMessage(Component.literal("Only operators can change Synaptic settings.")
                     .withStyle(ChatFormatting.RED));
                 return;
             }
-            if (payload.bits() == SharedLifeConfig.bits()) return;
-            SharedLifeConfig.apply(payload.bits());
-            SharedLifeConfig.save();
+            if (payload.bits() == SynapticConfig.bits()) return;
+            SynapticConfig.apply(payload.bits());
+            SynapticConfig.save();
             // A feature that was off has a stale shared value; re-seed from the
             // players who are actually here rather than snapping them to it.
-            SharedLifeMod.reseed();
+            SynapticMod.reseed();
             broadcast(context.server());
         });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
-            ServerPlayNetworking.send(handler.player, new ConfigSyncPayload(SharedLifeConfig.bits())));
+            ServerPlayNetworking.send(handler.player, new ConfigSyncPayload(SynapticConfig.bits())));
     }
 
     private static void broadcast(MinecraftServer server) {
-        ConfigSyncPayload payload = new ConfigSyncPayload(SharedLifeConfig.bits());
+        ConfigSyncPayload payload = new ConfigSyncPayload(SynapticConfig.bits());
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             ServerPlayNetworking.send(player, payload);
         }

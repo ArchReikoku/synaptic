@@ -1,4 +1,4 @@
-package com.sharedlife.config;
+package com.synaptic.config;
 
 import java.util.ArrayList;
 import java.util.List;

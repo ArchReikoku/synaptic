@@ -1,4 +1,4 @@
-package com.sharedlife.config;
+package com.synaptic.config;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -20,13 +20,13 @@ import org.slf4j.LoggerFactory;
  * set because it is read from the server thread and written from the network and
  * client threads.
  */
-public final class SharedLifeConfig {
-    private static final Logger LOGGER = LoggerFactory.getLogger("shared_life");
-    private static final String FILE_NAME = "shared_life.properties";
+public final class SynapticConfig {
+    private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
+    private static final String FILE_NAME = "synaptic.properties";
 
     private static volatile int bits = allEnabled();
 
-    private SharedLifeConfig() {
+    private SynapticConfig() {
     }
 
     private static int allEnabled() {
@@ -82,7 +82,7 @@ public final class SharedLifeConfig {
         try {
             Files.createDirectories(path.getParent());
             try (Writer writer = Files.newBufferedWriter(path)) {
-                properties.store(writer, "Shared Life — feature toggles (in-game: press K)");
+                properties.store(writer, "Synaptic — feature toggles (in-game: press K)");
             }
         } catch (IOException e) {
             LOGGER.warn("Could not write {}", path, e);

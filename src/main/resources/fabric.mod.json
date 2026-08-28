@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "shared_life",
+  "id": "synaptic",
   "version": "${version}",
-  "name": "Shared Life",
+  "name": "Synaptic",
   "description": "Shares health, hunger, status effects, absorption (golden hearts), experience, inventory, armor, and offhand across all online players. Announces every hit in chat, lets one sleeper skip the night, and keeps block-breaking progress when you swap tools mid-break.",
   "authors": [
     "Reikoku"
@@ -11,14 +11,14 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.sharedlife.SharedLifeMod"
+      "com.synaptic.SynapticMod"
     ],
     "client": [
-      "com.sharedlife.client.SharedLifeClient"
+      "com.synaptic.client.SynapticClient"
     ]
   },
   "mixins": [
-    "shared_life.mixins.json"
+    "synaptic.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.3",

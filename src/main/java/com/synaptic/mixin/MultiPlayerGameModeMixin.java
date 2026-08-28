@@ -1,7 +1,7 @@
-package com.sharedlife.mixin;
+package com.synaptic.mixin;
 
-import com.sharedlife.config.Feature;
-import com.sharedlife.config.SharedLifeConfig;
+import com.synaptic.config.Feature;
+import com.synaptic.config.SynapticConfig;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.core.BlockPos;
 import org.spongepowered.asm.mixin.Mixin;
@@ -31,8 +31,8 @@ public abstract class MultiPlayerGameModeMixin {
     private BlockPos destroyBlockPos;
 
     @Inject(method = "sameDestroyTarget", at = @At("HEAD"), cancellable = true)
-    private void sharedlife$ignoreToolSwap(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        if (!SharedLifeConfig.enabled(Feature.KEEP_MINING_PROGRESS)) return;
+    private void synaptic$ignoreToolSwap(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        if (!SynapticConfig.enabled(Feature.KEEP_MINING_PROGRESS)) return;
         cir.setReturnValue(pos.equals(this.destroyBlockPos));
     }
 }

@@ -1,10 +1,10 @@
-package com.sharedlife.client;
+package com.synaptic.client;
 
 import java.util.List;
 
-import com.sharedlife.config.Feature;
-import com.sharedlife.config.SharedLifeConfig;
-import com.sharedlife.net.ConfigUpdatePayload;
+import com.synaptic.config.Feature;
+import com.synaptic.config.SynapticConfig;
+import com.synaptic.net.ConfigUpdatePayload;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.ChatFormatting;
@@ -18,7 +18,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.permissions.Permissions;
 
 /**
- * Feature toggles for the whole server, opened with the Shared Life key (K by
+ * Feature toggles for the whole server, opened with the Synaptic key (K by
  * default). Buttons carry a short name and explain themselves on hover.
  * <p>
  * Built entirely from stock widgets laid out by a {@link GridLayout} — this
@@ -29,7 +29,7 @@ import net.minecraft.server.permissions.Permissions;
  * can be walked back with Cancel, and one packet carries the result. The server
  * re-checks permission regardless of what this screen allows.
  */
-public final class SharedLifeSettingsScreen extends Screen {
+public final class SynapticSettingsScreen extends Screen {
     private static final int COLUMNS = 2;
     private static final int BUTTON_WIDTH = 140;
     private static final int ROW_HEIGHT = 20;
@@ -38,9 +38,9 @@ public final class SharedLifeSettingsScreen extends Screen {
     private final boolean editable;
     private int pending;
 
-    public SharedLifeSettingsScreen() {
-        super(Component.literal("Shared Life Settings"));
-        this.pending = SharedLifeConfig.bits();
+    public SynapticSettingsScreen() {
+        super(Component.literal("Synaptic Settings"));
+        this.pending = SynapticConfig.bits();
         Minecraft minecraft = Minecraft.getInstance();
         this.editable = minecraft.player != null
             && minecraft.player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
@@ -48,7 +48,7 @@ public final class SharedLifeSettingsScreen extends Screen {
 
     @Override
     protected void init() {
-        this.pending = SharedLifeConfig.bits();
+        this.pending = SynapticConfig.bits();
 
         GridLayout grid = new GridLayout();
         grid.spacing(6);
@@ -75,7 +75,7 @@ public final class SharedLifeSettingsScreen extends Screen {
         }
 
         rows.addChild(Button.builder(Component.literal("Done"), button -> {
-            if (editable && pending != SharedLifeConfig.bits()) {
+            if (editable && pending != SynapticConfig.bits()) {
                 ClientPlayNetworking.send(new ConfigUpdatePayload(pending));
             }
             onClose();

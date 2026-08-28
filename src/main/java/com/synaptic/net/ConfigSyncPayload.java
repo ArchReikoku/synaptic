@@ -1,4 +1,4 @@
-package com.sharedlife.net;
+package com.synaptic.net;
 
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -9,7 +9,7 @@ import net.minecraft.resources.Identifier;
 /** Server to client: the settings everyone is playing under. */
 public record ConfigSyncPayload(int bits) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<ConfigSyncPayload> TYPE =
-        new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("shared_life", "config_sync"));
+        new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("synaptic", "config_sync"));
 
     public static final StreamCodec<ByteBuf, ConfigSyncPayload> CODEC =
         ByteBufCodecs.VAR_INT.map(ConfigSyncPayload::new, ConfigSyncPayload::bits);

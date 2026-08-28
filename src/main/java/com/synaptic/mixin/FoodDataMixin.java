@@ -1,8 +1,8 @@
-package com.sharedlife.mixin;
+package com.synaptic.mixin;
 
-import com.sharedlife.SharedLifeMod;
-import com.sharedlife.config.Feature;
-import com.sharedlife.config.SharedLifeConfig;
+import com.synaptic.SynapticMod;
+import com.synaptic.config.Feature;
+import com.synaptic.config.SynapticConfig;
 import net.minecraft.world.food.FoodData;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -30,8 +30,8 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
 @Mixin(FoodData.class)
 public abstract class FoodDataMixin {
     @ModifyVariable(method = "addExhaustion", at = @At("HEAD"), argsOnly = true)
-    private float sharedlife$splitAcrossPlayers(float exhaustion) {
-        if (!SharedLifeConfig.enabled(Feature.HUNGER_SPLIT)) return exhaustion;
-        return exhaustion / SharedLifeMod.sharedPlayerCount();
+    private float synaptic$splitAcrossPlayers(float exhaustion) {
+        if (!SynapticConfig.enabled(Feature.HUNGER_SPLIT)) return exhaustion;
+        return exhaustion / SynapticMod.sharedPlayerCount();
     }
 }

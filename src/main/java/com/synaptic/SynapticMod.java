@@ -1,4 +1,4 @@
-package com.sharedlife;
+package com.synaptic;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -7,9 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import com.sharedlife.config.Feature;
-import com.sharedlife.config.SharedLifeConfig;
-import com.sharedlife.net.SharedLifeNetworking;
+import com.synaptic.config.Feature;
+import com.synaptic.config.SynapticConfig;
+import com.synaptic.net.SynapticNetworking;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -31,7 +31,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.gamerules.GameRules;
 
 /** Shared health, hunger, effects, experience, and inventory state contributed to by every online player. */
-public final class SharedLifeMod implements ModInitializer {
+public final class SynapticMod implements ModInitializer {
     private static final int SHARED_INVENTORY_SLOTS = 41; // 36 inventory + 4 armor + offhand
     private static final String HEART = "❤";
     private static final Map<UUID, PlayerState> lastStates = new HashMap<>();
@@ -67,9 +67,9 @@ public final class SharedLifeMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        SharedLifeConfig.load();
-        SharedLifeNetworking.register();
-        ServerTickEvents.END_SERVER_TICK.register(SharedLifeMod::tick);
+        SynapticConfig.load();
+        SynapticNetworking.register();
+        ServerTickEvents.END_SERVER_TICK.register(SynapticMod::tick);
         // Queued rather than broadcast right here: the hearts-left figure in the
         // message is only settled once this tick's damage has been merged into the
         // shared bar, which happens at END_SERVER_TICK.
@@ -100,8 +100,8 @@ public final class SharedLifeMod implements ModInitializer {
             initialized = true;
         } else {
             applyBarChangesFromEveryone(players);
-            if (SharedLifeConfig.enabled(Feature.INVENTORY)) applyInventoryChangesFromEveryone(players);
-            if (SharedLifeConfig.enabled(Feature.EFFECTS)) mergeEffectsFromEveryone(players);
+            if (SynapticConfig.enabled(Feature.INVENTORY)) applyInventoryChangesFromEveryone(players);
+            if (SynapticConfig.enabled(Feature.EFFECTS)) mergeEffectsFromEveryone(players);
         }
 
         broadcastDamageReports(server);
@@ -129,7 +129,7 @@ public final class SharedLifeMod implements ModInitializer {
      * "whoever lies down first".
      */
     private static void allowSoloSleep(MinecraftServer server) {
-        int wanted = SharedLifeConfig.enabled(Feature.SOLO_SLEEP) ? 1 : 100;
+        int wanted = SynapticConfig.enabled(Feature.SOLO_SLEEP) ? 1 : 100;
         GameRules rules = server.getGameRules();
         Integer required = rules.get(GameRules.PLAYERS_SLEEPING_PERCENTAGE);
         if (required == null || required != wanted) {
@@ -140,8 +140,8 @@ public final class SharedLifeMod implements ModInitializer {
     /** "Steve took 1.5(heart) damage from fall (3.5(heart) left)" for the whole server. */
     private static void broadcastDamageReports(MinecraftServer server) {
         if (pendingDamage.isEmpty()) return;
-        boolean announce = SharedLifeConfig.enabled(Feature.DAMAGE_MESSAGES);
-        boolean alert = SharedLifeConfig.enabled(Feature.DAMAGE_SOUND);
+        boolean announce = SynapticConfig.enabled(Feature.DAMAGE_MESSAGES);
+        boolean alert = SynapticConfig.enabled(Feature.DAMAGE_SOUND);
         for (DamageReport report : pendingDamage) {
             if (announce) server.getPlayerList().broadcastSystemMessage(Component.literal(report.name())
                 .withStyle(ChatFormatting.YELLOW)
@@ -235,19 +235,19 @@ public final class SharedLifeMod implements ModInitializer {
         // happens upstream on exhaustion (FoodDataMixin) rather than on the drop
         // itself. So these are summed at full weight: a whole point spent is a
         // whole point off the shared bar.
-        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
+        if (SynapticConfig.enabled(Feature.HEALTH)) {
             sharedHealth = Math.max(0.0F, sharedHealth + healthDelta);
         }
-        if (SharedLifeConfig.enabled(Feature.HUNGER)) {
+        if (SynapticConfig.enabled(Feature.HUNGER)) {
             sharedFood = Math.max(0, Math.min(20, sharedFood + foodDelta));
             sharedSaturation = Math.max(0.0F, Math.min(sharedFood, sharedSaturation + saturationDelta));
         }
         // Golden hearts ride along with Life: they are hearts too, and splitting
         // them out would let absorption drift away from the health it buffers.
-        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
+        if (SynapticConfig.enabled(Feature.HEALTH)) {
             sharedAbsorption = Math.max(0.0F, sharedAbsorption + absorptionDelta);
         }
-        if (SharedLifeConfig.enabled(Feature.EXPERIENCE)) {
+        if (SynapticConfig.enabled(Feature.EXPERIENCE)) {
             sharedXpLevel += xpLevelDelta;
             sharedXpProgress += xpProgressDelta;
             sharedXpTotal = Math.max(0, sharedXpTotal + xpPointDelta);
@@ -340,14 +340,14 @@ public final class SharedLifeMod implements ModInitializer {
     }
 
     private static void applySharedState(ServerPlayer player) {
-        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
+        if (SynapticConfig.enabled(Feature.HEALTH)) {
             player.setHealth(Math.min(sharedHealth, player.getMaxHealth()));
         }
-        if (SharedLifeConfig.enabled(Feature.HUNGER)) {
+        if (SynapticConfig.enabled(Feature.HUNGER)) {
             player.getFoodData().setFoodLevel(sharedFood);
             player.getFoodData().setSaturation(sharedSaturation);
         }
-        if (SharedLifeConfig.enabled(Feature.EFFECTS)) {
+        if (SynapticConfig.enabled(Feature.EFFECTS)) {
             for (MobEffectInstance active : List.copyOf(player.getActiveEffects())) {
                 if (!sharedEffects.containsKey(active.getEffect())) {
                     player.removeEffect(active.getEffect());
@@ -363,12 +363,12 @@ public final class SharedLifeMod implements ModInitializer {
         // Golden hearts, written AFTER the effects above: re-applying a shared
         // Absorption effect tops the amount up on every apply, so the shared value
         // has to be the last word or absorption would inflate tick after tick.
-        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
+        if (SynapticConfig.enabled(Feature.HEALTH)) {
             player.setAbsorptionAmount(sharedAbsorption);
         }
         // Only on a real change: the client is resent the bar whenever
         // totalExperience moves, so writing every tick would be packet spam.
-        if (SharedLifeConfig.enabled(Feature.EXPERIENCE)
+        if (SynapticConfig.enabled(Feature.EXPERIENCE)
             && (player.experienceLevel != sharedXpLevel
                 || player.totalExperience != sharedXpTotal
                 || Math.abs(player.experienceProgress - sharedXpProgress) > 1.0E-4F)) {
@@ -376,7 +376,7 @@ public final class SharedLifeMod implements ModInitializer {
             player.experienceProgress = sharedXpProgress;
             player.totalExperience = sharedXpTotal;
         }
-        if (SharedLifeConfig.enabled(Feature.INVENTORY)) {
+        if (SynapticConfig.enabled(Feature.INVENTORY)) {
             Inventory inventory = player.getInventory();
             for (int slot = 0; slot < SHARED_INVENTORY_SLOTS; slot++) {
                 if (!ItemStack.matches(inventory.getItem(slot), sharedInventory[slot])) {
