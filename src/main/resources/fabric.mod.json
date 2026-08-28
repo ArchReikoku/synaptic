@@ -3,11 +3,12 @@
   "id": "synaptic",
   "version": "${version}",
   "name": "Synaptic",
-  "description": "Shares health, hunger, status effects, absorption (golden hearts), experience, inventory, armor, and offhand across all online players. Announces every hit in chat, lets one sleeper skip the night, and keeps block-breaking progress when you swap tools mid-break.",
+  "description": "One life, shared. Health, hunger, experience, status effects, and the whole inventory are pooled across everyone online — what one player gains, everyone gains; what one loses, everyone loses. Damage is called out in chat and heard by the whole group, hunger is split by player count, and a single sleeper is enough to skip the night. Press K in game to switch any of it on or off.",
   "authors": [
     "Reikoku"
   ],
   "license": "All Rights Reserved",
+  "icon": "assets/synaptic/icon.png",
   "environment": "*",
   "entrypoints": {
     "main": [
