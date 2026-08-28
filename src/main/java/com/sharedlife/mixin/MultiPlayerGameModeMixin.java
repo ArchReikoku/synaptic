@@ -1,5 +1,7 @@
 package com.sharedlife.mixin;
 
+import com.sharedlife.config.Feature;
+import com.sharedlife.config.SharedLifeConfig;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.core.BlockPos;
 import org.spongepowered.asm.mixin.Mixin;
@@ -30,6 +32,7 @@ public abstract class MultiPlayerGameModeMixin {
 
     @Inject(method = "sameDestroyTarget", at = @At("HEAD"), cancellable = true)
     private void sharedlife$ignoreToolSwap(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        if (!SharedLifeConfig.enabled(Feature.KEEP_MINING_PROGRESS)) return;
         cir.setReturnValue(pos.equals(this.destroyBlockPos));
     }
 }

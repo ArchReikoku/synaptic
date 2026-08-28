@@ -12,6 +12,9 @@
   "entrypoints": {
     "main": [
       "com.sharedlife.SharedLifeMod"
+    ],
+    "client": [
+      "com.sharedlife.client.SharedLifeClient"
     ]
   },
   "mixins": [

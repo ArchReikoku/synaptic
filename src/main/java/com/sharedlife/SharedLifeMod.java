@@ -7,6 +7,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.sharedlife.config.Feature;
+import com.sharedlife.config.SharedLifeConfig;
+import com.sharedlife.net.SharedLifeNetworking;
+
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -51,8 +55,20 @@ public final class SharedLifeMod implements ModInitializer {
         return Math.max(1, playerCount);
     }
 
+    /**
+     * Re-seed every shared value from the players currently online, used when the
+     * settings change: a feature that was switched off has a shared value frozen
+     * at whatever it was, and snapping everyone back to that would be worse than
+     * starting it fresh.
+     */
+    public static void reseed() {
+        initialized = false;
+    }
+
     @Override
     public void onInitialize() {
+        SharedLifeConfig.load();
+        SharedLifeNetworking.register();
         ServerTickEvents.END_SERVER_TICK.register(SharedLifeMod::tick);
         // Queued rather than broadcast right here: the hearts-left figure in the
         // message is only settled once this tick's damage has been merged into the
@@ -84,8 +100,8 @@ public final class SharedLifeMod implements ModInitializer {
             initialized = true;
         } else {
             applyBarChangesFromEveryone(players);
-            applyInventoryChangesFromEveryone(players);
-            mergeEffectsFromEveryone(players);
+            if (SharedLifeConfig.enabled(Feature.INVENTORY)) applyInventoryChangesFromEveryone(players);
+            if (SharedLifeConfig.enabled(Feature.EFFECTS)) mergeEffectsFromEveryone(players);
         }
 
         broadcastDamageReports(server);
@@ -113,18 +129,21 @@ public final class SharedLifeMod implements ModInitializer {
      * "whoever lies down first".
      */
     private static void allowSoloSleep(MinecraftServer server) {
+        int wanted = SharedLifeConfig.enabled(Feature.SOLO_SLEEP) ? 1 : 100;
         GameRules rules = server.getGameRules();
         Integer required = rules.get(GameRules.PLAYERS_SLEEPING_PERCENTAGE);
-        if (required == null || required != 1) {
-            rules.set(GameRules.PLAYERS_SLEEPING_PERCENTAGE, 1, server);
+        if (required == null || required != wanted) {
+            rules.set(GameRules.PLAYERS_SLEEPING_PERCENTAGE, wanted, server);
         }
     }
 
     /** "Steve took 1.5(heart) damage from fall (3.5(heart) left)" for the whole server. */
     private static void broadcastDamageReports(MinecraftServer server) {
         if (pendingDamage.isEmpty()) return;
+        boolean announce = SharedLifeConfig.enabled(Feature.DAMAGE_MESSAGES);
+        boolean alert = SharedLifeConfig.enabled(Feature.DAMAGE_SOUND);
         for (DamageReport report : pendingDamage) {
-            server.getPlayerList().broadcastSystemMessage(Component.literal(report.name())
+            if (announce) server.getPlayerList().broadcastSystemMessage(Component.literal(report.name())
                 .withStyle(ChatFormatting.YELLOW)
                 .append(Component.literal(" took ").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(hearts(report.damage()) + HEART).withStyle(ChatFormatting.RED))
@@ -133,7 +152,7 @@ public final class SharedLifeMod implements ModInitializer {
                 .append(Component.literal(" (").withStyle(ChatFormatting.DARK_GRAY))
                 .append(Component.literal(hearts(sharedHealth) + HEART).withStyle(ChatFormatting.RED))
                 .append(Component.literal(" left)").withStyle(ChatFormatting.DARK_GRAY)), false);
-            playHurtSoundForEveryone(server, report.victim());
+            if (alert) playHurtSoundForEveryone(server, report.victim());
         }
         pendingDamage.clear();
     }
@@ -216,14 +235,22 @@ public final class SharedLifeMod implements ModInitializer {
         // happens upstream on exhaustion (FoodDataMixin) rather than on the drop
         // itself. So these are summed at full weight: a whole point spent is a
         // whole point off the shared bar.
-        sharedHealth = Math.max(0.0F, sharedHealth + healthDelta);
-        sharedFood = Math.max(0, Math.min(20, sharedFood + foodDelta));
-        sharedSaturation = Math.max(0.0F, Math.min(sharedFood, sharedSaturation + saturationDelta));
-        sharedAbsorption = Math.max(0.0F, sharedAbsorption + absorptionDelta);
-        sharedXpLevel += xpLevelDelta;
-        sharedXpProgress += xpProgressDelta;
-        sharedXpTotal = Math.max(0, sharedXpTotal + xpPointDelta);
-        normalizeSharedXp();
+        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
+            sharedHealth = Math.max(0.0F, sharedHealth + healthDelta);
+        }
+        if (SharedLifeConfig.enabled(Feature.HUNGER)) {
+            sharedFood = Math.max(0, Math.min(20, sharedFood + foodDelta));
+            sharedSaturation = Math.max(0.0F, Math.min(sharedFood, sharedSaturation + saturationDelta));
+        }
+        if (SharedLifeConfig.enabled(Feature.ABSORPTION)) {
+            sharedAbsorption = Math.max(0.0F, sharedAbsorption + absorptionDelta);
+        }
+        if (SharedLifeConfig.enabled(Feature.EXPERIENCE)) {
+            sharedXpLevel += xpLevelDelta;
+            sharedXpProgress += xpProgressDelta;
+            sharedXpTotal = Math.max(0, sharedXpTotal + xpPointDelta);
+            normalizeSharedXp();
+        }
     }
 
     /** Carry a bar that ran off either end of the level into the level count itself. */
@@ -244,7 +271,16 @@ public final class SharedLifeMod implements ModInitializer {
         Arrays.fill(sharedInventory, ItemStack.EMPTY);
         // Merge every player's normal inventory into the shared pool. Matching
         // stacks combine; conflicting equipment uses the first occupied slot.
+        //
+        // Players still carrying an identical copy of someone already merged are
+        // skipped. Re-seeding happens whenever the settings change, and by then
+        // everyone is usually holding the same shared inventory — pooling those
+        // copies would multiply every stack by the player count, which is a dupe
+        // exploit one toggle away.
+        List<ServerPlayer> merged = new ArrayList<>();
         for (ServerPlayer player : players) {
+            if (merged.stream().anyMatch(other -> sameInventory(other, player))) continue;
+            merged.add(player);
             Inventory inventory = player.getInventory();
             for (int slot = 0; slot < 36; slot++) addToSharedPool(inventory.getItem(slot));
             for (int slot = 36; slot < SHARED_INVENTORY_SLOTS; slot++) {
@@ -302,37 +338,48 @@ public final class SharedLifeMod implements ModInitializer {
     }
 
     private static void applySharedState(ServerPlayer player) {
-        player.setHealth(Math.min(sharedHealth, player.getMaxHealth()));
-        player.getFoodData().setFoodLevel(sharedFood);
-        player.getFoodData().setSaturation(sharedSaturation);
-        for (MobEffectInstance active : List.copyOf(player.getActiveEffects())) {
-            if (!sharedEffects.containsKey(active.getEffect())) {
-                player.removeEffect(active.getEffect());
-            }
+        if (SharedLifeConfig.enabled(Feature.HEALTH)) {
+            player.setHealth(Math.min(sharedHealth, player.getMaxHealth()));
         }
-        for (MobEffectInstance shared : sharedEffects.values()) {
-            MobEffectInstance current = player.getEffect(shared.getEffect());
-            if (current == null || !current.equals(shared)) {
-                player.addEffect(new MobEffectInstance(shared));
+        if (SharedLifeConfig.enabled(Feature.HUNGER)) {
+            player.getFoodData().setFoodLevel(sharedFood);
+            player.getFoodData().setSaturation(sharedSaturation);
+        }
+        if (SharedLifeConfig.enabled(Feature.EFFECTS)) {
+            for (MobEffectInstance active : List.copyOf(player.getActiveEffects())) {
+                if (!sharedEffects.containsKey(active.getEffect())) {
+                    player.removeEffect(active.getEffect());
+                }
+            }
+            for (MobEffectInstance shared : sharedEffects.values()) {
+                MobEffectInstance current = player.getEffect(shared.getEffect());
+                if (current == null || !current.equals(shared)) {
+                    player.addEffect(new MobEffectInstance(shared));
+                }
             }
         }
         // Golden hearts, written AFTER the effects above: re-applying a shared
         // Absorption effect tops the amount up on every apply, so the shared value
         // has to be the last word or absorption would inflate tick after tick.
-        player.setAbsorptionAmount(sharedAbsorption);
+        if (SharedLifeConfig.enabled(Feature.ABSORPTION)) {
+            player.setAbsorptionAmount(sharedAbsorption);
+        }
         // Only on a real change: the client is resent the bar whenever
         // totalExperience moves, so writing every tick would be packet spam.
-        if (player.experienceLevel != sharedXpLevel
-            || player.totalExperience != sharedXpTotal
-            || Math.abs(player.experienceProgress - sharedXpProgress) > 1.0E-4F) {
+        if (SharedLifeConfig.enabled(Feature.EXPERIENCE)
+            && (player.experienceLevel != sharedXpLevel
+                || player.totalExperience != sharedXpTotal
+                || Math.abs(player.experienceProgress - sharedXpProgress) > 1.0E-4F)) {
             player.experienceLevel = sharedXpLevel;
             player.experienceProgress = sharedXpProgress;
             player.totalExperience = sharedXpTotal;
         }
-        Inventory inventory = player.getInventory();
-        for (int slot = 0; slot < SHARED_INVENTORY_SLOTS; slot++) {
-            if (!ItemStack.matches(inventory.getItem(slot), sharedInventory[slot])) {
-                inventory.setItem(slot, sharedInventory[slot].copy());
+        if (SharedLifeConfig.enabled(Feature.INVENTORY)) {
+            Inventory inventory = player.getInventory();
+            for (int slot = 0; slot < SHARED_INVENTORY_SLOTS; slot++) {
+                if (!ItemStack.matches(inventory.getItem(slot), sharedInventory[slot])) {
+                    inventory.setItem(slot, sharedInventory[slot].copy());
+                }
             }
         }
     }
@@ -356,6 +403,15 @@ public final class SharedLifeMod implements ModInitializer {
                 remaining.shrink(moved);
             }
         }
+    }
+
+    private static boolean sameInventory(ServerPlayer left, ServerPlayer right) {
+        for (int slot = 0; slot < SHARED_INVENTORY_SLOTS; slot++) {
+            if (!ItemStack.matches(left.getInventory().getItem(slot), right.getInventory().getItem(slot))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static InventorySnapshot snapshot(ServerPlayer player) {
