@@ -2,7 +2,6 @@ package com.synaptic.net;
 
 import com.synaptic.SynapticMod;
 import com.synaptic.config.Feature;
-import com.synaptic.config.SetupState;
 import com.synaptic.config.SynapticConfig;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
@@ -24,7 +23,6 @@ public final class SynapticNetworking {
 
     public static void register() {
         PayloadTypeRegistry.clientboundPlay().register(ConfigSyncPayload.TYPE, ConfigSyncPayload.CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(OpenSettingsPayload.TYPE, OpenSettingsPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConfigUpdatePayload.TYPE, ConfigUpdatePayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(ConfigUpdatePayload.TYPE, (payload, context) -> {
@@ -52,13 +50,14 @@ public final class SynapticNetworking {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.player;
             ServerPlayNetworking.send(player, new ConfigSyncPayload(SynapticConfig.bits()));
-            // First arrival in this world: put the settings in front of whoever
-            // can actually change them, while the inventory toggle is still free
-            // to move. Marked done on send so nobody gets nagged every join.
-            if (!SetupState.isDone(server) && canConfigure(player)) {
-                SetupState.markDone(server);
-                ServerPlayNetworking.send(player, OpenSettingsPayload.INSTANCE);
-            }
+            // Everyone gets the hint, not just whoever can change things: the
+            // screen is worth opening to read what the world is running under.
+            player.sendSystemMessage(Component.literal("Press ")
+                .withStyle(ChatFormatting.GRAY)
+                .append(Component.literal("\"K\"").withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD))
+                .append(Component.literal(" to configure ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal("Synaptic").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD))
+                .append(Component.literal(" - Shared Life").withStyle(ChatFormatting.AQUA)));
         });
     }
 

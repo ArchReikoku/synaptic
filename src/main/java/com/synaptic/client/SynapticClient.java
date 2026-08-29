@@ -2,7 +2,6 @@ package com.synaptic.client;
 
 import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.ConfigSyncPayload;
-import com.synaptic.net.OpenSettingsPayload;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -22,16 +21,11 @@ public final class SynapticClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(ConfigSyncPayload.TYPE,
             (payload, context) -> SynapticConfig.apply(payload.bits()));
 
-        // First join in a fresh world: the server asks us to put the settings up,
-        // while the inventory toggle is still free to move without cost.
-        ClientPlayNetworking.registerGlobalReceiver(OpenSettingsPayload.TYPE, (payload, context) ->
-            context.client().setScreenAndShow(new SynapticSettingsScreen(true)));
-
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (OPEN_SETTINGS.consumeClick()) {
                 // Vanilla only fires keybinds while no screen is open, so reaching
                 // here already means the game is the active view.
-                if (client.player != null) client.setScreenAndShow(new SynapticSettingsScreen(false));
+                if (client.player != null) client.setScreenAndShow(new SynapticSettingsScreen());
             }
         });
     }

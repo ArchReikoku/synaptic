@@ -33,16 +33,16 @@ public final class SynapticSettingsScreen extends Screen {
     private static final int COLUMNS = 2;
     private static final int BUTTON_WIDTH = 140;
     private static final int ROW_HEIGHT = 20;
-    private static final int FULL_WIDTH = BUTTON_WIDTH * COLUMNS + 6;
+    private static final int SPACING = 6;
+    private static final int FULL_WIDTH = BUTTON_WIDTH * COLUMNS + SPACING;
 
     private final boolean editable;
-    private final boolean firstRun;
-    private StringWidget warning;
+    private StringWidget warningTop;
+    private StringWidget warningBottom;
     private int pending;
 
-    public SynapticSettingsScreen(boolean firstRun) {
-        super(Component.literal(firstRun ? "Synaptic — set up this world" : "Synaptic Settings"));
-        this.firstRun = firstRun;
+    public SynapticSettingsScreen() {
+        super(Component.literal("Synaptic Settings"));
         this.pending = SynapticConfig.bits();
         Minecraft minecraft = Minecraft.getInstance();
         this.editable = minecraft.player != null
@@ -54,26 +54,35 @@ public final class SynapticSettingsScreen extends Screen {
         this.pending = SynapticConfig.bits();
 
         GridLayout grid = new GridLayout();
-        grid.spacing(6);
+        grid.spacing(SPACING);
+        // Everything sits centred in its cell, so a button that spans the full
+        // width lands in the middle instead of hugging the left column.
+        grid.defaultCellSetting().alignHorizontallyCenter();
         GridLayout.RowHelper rows = grid.createRowHelper(COLUMNS);
 
         rows.addChild(label(this.title.copy().withStyle(ChatFormatting.BOLD)), COLUMNS);
-        rows.addChild(label(subtitle()), COLUMNS);
-        // Sits empty until a toggle earns it, so the layout does not jump.
-        warning = label(Component.empty());
-        rows.addChild(warning, COLUMNS);
+        rows.addChild(label(editable
+            ? Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY)
+            : Component.literal("Operators only — you can look, but not change")
+                .withStyle(ChatFormatting.RED)), COLUMNS);
+
+        // Two empty lines held open for the inventory warning, so the layout does
+        // not jump around underneath the cursor when it appears.
+        warningTop = label(Component.empty());
+        warningBottom = label(Component.empty());
+        rows.addChild(warningTop, COLUMNS);
+        rows.addChild(warningBottom, COLUMNS);
 
         for (Feature.Group group : Feature.Group.values()) {
             List<Feature> features = Feature.of(group);
             rows.addChild(label(Component.literal(group.title())
                 .withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)), COLUMNS);
-            for (Feature feature : features) {
-                rows.addChild(toggleFor(feature));
-            }
-            // The grid wants whole rows; an odd group would otherwise pull the
-            // next section's header up alongside its last button.
-            if (features.size() % COLUMNS != 0) {
-                rows.addChild(new StringWidget(BUTTON_WIDTH, ROW_HEIGHT, Component.empty(), this.font));
+            for (int i = 0; i < features.size(); i++) {
+                boolean lastAndOdd = i == features.size() - 1 && features.size() % COLUMNS != 0;
+                // An odd group's final button spans both columns rather than
+                // sitting in the left one with a hole beside it.
+                if (lastAndOdd) rows.addChild(toggleFor(features.get(i)), COLUMNS);
+                else rows.addChild(toggleFor(features.get(i)));
             }
         }
 
@@ -86,41 +95,36 @@ public final class SynapticSettingsScreen extends Screen {
         rows.addChild(Button.builder(Component.literal("Cancel"), button -> onClose())
             .width(BUTTON_WIDTH).build());
 
+        refreshWarning();
+
         grid.arrangeElements();
         grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
         grid.visitWidgets(this::addRenderableWidget);
     }
 
-    private Component subtitle() {
-        if (!editable) {
-            return Component.literal("Operators only — you can look, but not change")
-                .withStyle(ChatFormatting.RED);
-        }
-        return firstRun
-            ? Component.literal("First time in this world — set it up now, press K to change it later")
-                .withStyle(ChatFormatting.GRAY)
-            : Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY);
-    }
-
     /**
-     * Shared inventory is the one toggle that costs something to change once
-     * people are carrying things, so it says so before Done rather than after.
-     * On the first-run screen there is nothing to lose yet, so it stays quiet.
+     * Shared inventory is the one toggle that destroys things, so it says what it
+     * will do before Done rather than after. Turning it on merges every player's
+     * inventory into a single 36-slot one and drops whatever will not fit;
+     * turning it off is safe now but sets up that same merge for later.
      */
     private void refreshWarning() {
         boolean live = SynapticConfig.enabled(Feature.INVENTORY);
         boolean wanted = (pending & Feature.INVENTORY.bit()) != 0;
-        if (firstRun || live == wanted) {
-            warning.setMessage(Component.empty());
+        if (live == wanted) {
+            warningTop.setMessage(Component.empty());
+            warningBottom.setMessage(Component.empty());
         } else if (wanted) {
-            warning.setMessage(Component.literal(
-                "Turning shared inventory ON pools everyone's items — anything past 36 slots is lost")
-                .withStyle(ChatFormatting.RED));
+            warningTop.setMessage(red("Turning shared inventory ON merges every player's items into one"));
+            warningBottom.setMessage(red("36-slot inventory. Whatever does not fit is destroyed for good."));
         } else {
-            warning.setMessage(Component.literal(
-                "Turning shared inventory OFF lets everyone's items drift apart from here")
-                .withStyle(ChatFormatting.YELLOW));
+            warningTop.setMessage(red("Turning shared inventory OFF splits you apart: each player keeps what"));
+            warningBottom.setMessage(red("they hold now, and switching it back on later merges and destroys again."));
         }
+    }
+
+    private static Component red(String text) {
+        return Component.literal(text).withStyle(ChatFormatting.RED);
     }
 
     private Button toggleFor(Feature feature) {
