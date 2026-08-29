@@ -15,6 +15,7 @@ import com.synaptic.net.SynapticNetworking;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.ChatFormatting;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.Holder;
@@ -24,10 +25,12 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.gamerules.GameRules;
@@ -92,6 +95,19 @@ public final class SynapticMod implements ModInitializer {
         });
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
             if (entity instanceof ServerPlayer player) killEveryoneElse(player);
+        });
+        // A shared pet follows whoever handled it last. Ownership is what the
+        // follow goals read, so handing it over is the whole mechanism — and it
+        // is why this is a real transfer rather than a temporary loan: switch the
+        // feature off afterwards and each pet stays with whoever touched it last.
+        UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
+            // Against the real owner, not isOwnedBy: the mixin answers yes to
+            // every player, so asking that would never find a pet to hand over.
+            if (!level.isClientSide() && SynapticConfig.enabled(Feature.PETS)
+                && entity instanceof TamableAnimal pet && pet.isTame() && pet.getOwner() != player) {
+                pet.setOwner(player);
+            }
+            return InteractionResult.PASS;
         });
     }
 

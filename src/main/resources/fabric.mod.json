@@ -3,7 +3,7 @@
   "id": "synaptic",
   "version": "${version}",
   "name": "Synaptic",
-  "description": "One life, shared. Health, hunger, experience, status effects, advancements, the inventory and the ender chest are pooled across everyone online — and if one player dies, everyone dies. Damage is called out in chat and heard by the whole group, hunger is split by player count, and a single sleeper skips the night. Press K in game to switch any of it on or off.",
+  "description": "One life, shared. Health, hunger, experience, status effects, advancements, pets, the inventory and the ender chest are pooled across everyone online — and if one player dies, everyone dies. Damage is called out in chat and heard by the whole group, hunger is split by player count, and a single sleeper skips the night. Press K in game, or use /synaptic, to switch any of it on or off.",
   "authors": [
     "Reikoku"
   ],
