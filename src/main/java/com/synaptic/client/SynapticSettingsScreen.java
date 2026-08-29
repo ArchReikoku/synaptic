@@ -36,10 +36,13 @@ public final class SynapticSettingsScreen extends Screen {
     private static final int FULL_WIDTH = BUTTON_WIDTH * COLUMNS + 6;
 
     private final boolean editable;
+    private final boolean firstRun;
+    private StringWidget warning;
     private int pending;
 
-    public SynapticSettingsScreen() {
-        super(Component.literal("Synaptic Settings"));
+    public SynapticSettingsScreen(boolean firstRun) {
+        super(Component.literal(firstRun ? "Synaptic — set up this world" : "Synaptic Settings"));
+        this.firstRun = firstRun;
         this.pending = SynapticConfig.bits();
         Minecraft minecraft = Minecraft.getInstance();
         this.editable = minecraft.player != null
@@ -55,10 +58,10 @@ public final class SynapticSettingsScreen extends Screen {
         GridLayout.RowHelper rows = grid.createRowHelper(COLUMNS);
 
         rows.addChild(label(this.title.copy().withStyle(ChatFormatting.BOLD)), COLUMNS);
-        rows.addChild(label(editable
-            ? Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY)
-            : Component.literal("Operators only — you can look, but not change")
-                .withStyle(ChatFormatting.RED)), COLUMNS);
+        rows.addChild(label(subtitle()), COLUMNS);
+        // Sits empty until a toggle earns it, so the layout does not jump.
+        warning = label(Component.empty());
+        rows.addChild(warning, COLUMNS);
 
         for (Feature.Group group : Feature.Group.values()) {
             List<Feature> features = Feature.of(group);
@@ -88,10 +91,43 @@ public final class SynapticSettingsScreen extends Screen {
         grid.visitWidgets(this::addRenderableWidget);
     }
 
+    private Component subtitle() {
+        if (!editable) {
+            return Component.literal("Operators only — you can look, but not change")
+                .withStyle(ChatFormatting.RED);
+        }
+        return firstRun
+            ? Component.literal("First time in this world — set it up now, press K to change it later")
+                .withStyle(ChatFormatting.GRAY)
+            : Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY);
+    }
+
+    /**
+     * Shared inventory is the one toggle that costs something to change once
+     * people are carrying things, so it says so before Done rather than after.
+     * On the first-run screen there is nothing to lose yet, so it stays quiet.
+     */
+    private void refreshWarning() {
+        boolean live = SynapticConfig.enabled(Feature.INVENTORY);
+        boolean wanted = (pending & Feature.INVENTORY.bit()) != 0;
+        if (firstRun || live == wanted) {
+            warning.setMessage(Component.empty());
+        } else if (wanted) {
+            warning.setMessage(Component.literal(
+                "Turning shared inventory ON pools everyone's items — anything past 36 slots is lost")
+                .withStyle(ChatFormatting.RED));
+        } else {
+            warning.setMessage(Component.literal(
+                "Turning shared inventory OFF lets everyone's items drift apart from here")
+                .withStyle(ChatFormatting.YELLOW));
+        }
+    }
+
     private Button toggleFor(Feature feature) {
         Button toggle = Button.builder(labelFor(feature), button -> {
             pending ^= feature.bit();
             button.setMessage(labelFor(feature));
+            if (feature == Feature.INVENTORY) refreshWarning();
         }).width(BUTTON_WIDTH).build();
         toggle.active = editable;
         toggle.setTooltip(Tooltip.create(Component.literal(feature.description())));
