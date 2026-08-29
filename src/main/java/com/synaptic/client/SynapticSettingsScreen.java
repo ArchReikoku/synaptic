@@ -30,9 +30,11 @@ import net.minecraft.server.permissions.Permissions;
  * Every child is added with its own centring {@link LayoutSettings}. This game
  * version dropped StringWidget's alignment methods, and the widget reports its
  * own width as the width of its text, so text is only centred by centring the
- * whole widget inside its cell. Warning lines are kept shorter than the button
- * block for the same reason: a line wider than the grid would widen the columns
- * and push the two button rows apart.
+ * whole widget inside its cell — which in turn only works if the text is already
+ * there when the layout runs. That is why a toggle carrying a warning rebuilds
+ * the screen rather than filling in reserved blank lines: the rebuilt layout
+ * measures the real text, and no dead space is held open when there is nothing
+ * to say.
  * <p>
  * Nothing is sent until Done: the pending mask is edited locally so a misclick
  * can be walked back with Cancel, and one packet carries the result. The server
@@ -41,9 +43,7 @@ import net.minecraft.server.permissions.Permissions;
 public final class SynapticSettingsScreen extends Screen {
     private static final int COLUMNS = 2;
     private static final int BUTTON_WIDTH = 140;
-    private static final int ROW_HEIGHT = 20;
     private static final int SPACING = 6;
-    private static final int WARNING_LINES = 3;
 
     private static final List<String> MERGE_WARNING = List.of(
         "Shared inventory ON merges everyone's items",
@@ -53,13 +53,19 @@ public final class SynapticSettingsScreen extends Screen {
         "Shared inventory OFF stops items syncing.",
         "Turning it back on later merges everyone's",
         "inventories and destroys the overflow.");
+    private static final List<String> MINING_WARNING = List.of(
+        "Tool Swap Mining OFF: when another player",
+        "picks up items the shared inventory changes,",
+        "which resets your mining progress mid-block",
+        "and can stop you breaking it at all.");
 
     private final boolean editable;
-    private final List<StringWidget> warnings = new ArrayList<>();
     private int pending;
 
     public SynapticSettingsScreen() {
         super(Component.literal("Synaptic Settings"));
+        // Set here and not in init(), which runs again on every rebuild and would
+        // throw away edits that have not been sent yet.
         this.pending = SynapticConfig.bits();
         Minecraft minecraft = Minecraft.getInstance();
         this.editable = minecraft.player != null
@@ -70,11 +76,28 @@ public final class SynapticSettingsScreen extends Screen {
         return LayoutSettings.defaults().alignHorizontallyCenter();
     }
 
+    private boolean wants(Feature feature) {
+        return (pending & feature.bit()) != 0;
+    }
+
+    /** What is about to change that the player should hear about first. */
+    private List<Warning> warnings() {
+        List<Warning> warnings = new ArrayList<>();
+        boolean sharing = SynapticConfig.enabled(Feature.INVENTORY);
+        if (sharing != wants(Feature.INVENTORY)) {
+            warnings.add(new Warning(wants(Feature.INVENTORY) ? MERGE_WARNING : SPLIT_WARNING,
+                ChatFormatting.RED));
+        }
+        // Only the off direction: this one exists to keep shared inventories from
+        // breaking mining, so switching it back on costs nothing.
+        if (SynapticConfig.enabled(Feature.KEEP_MINING_PROGRESS) && !wants(Feature.KEEP_MINING_PROGRESS)) {
+            warnings.add(new Warning(MINING_WARNING, ChatFormatting.YELLOW));
+        }
+        return warnings;
+    }
+
     @Override
     protected void init() {
-        this.pending = SynapticConfig.bits();
-        this.warnings.clear();
-
         GridLayout grid = new GridLayout();
         grid.spacing(SPACING);
         GridLayout.RowHelper rows = grid.createRowHelper(COLUMNS);
@@ -85,11 +108,11 @@ public final class SynapticSettingsScreen extends Screen {
             : Component.literal("Operators only — you can look, not change")
                 .withStyle(ChatFormatting.RED)), COLUMNS, centred());
 
-        // Held open empty so the rows below do not jump when a warning appears.
-        for (int i = 0; i < WARNING_LINES; i++) {
-            StringWidget line = label(Component.empty());
-            warnings.add(line);
-            rows.addChild(line, COLUMNS, centred());
+        for (Warning warning : warnings()) {
+            for (String line : warning.lines()) {
+                rows.addChild(label(Component.literal(line).withStyle(warning.colour())),
+                    COLUMNS, centred());
+            }
         }
 
         for (Feature.Group group : Feature.Group.values()) {
@@ -117,42 +140,19 @@ public final class SynapticSettingsScreen extends Screen {
         grid.arrangeElements();
         grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
         grid.visitWidgets(this::addRenderableWidget);
-
-        // After the layout, never before: this re-centres the warning lines, and
-        // arrangeElements would overwrite that.
-        refreshWarning();
-    }
-
-    /**
-     * Shared inventory is the one toggle that destroys things, so it says what it
-     * will do before Done rather than after. Turning it on merges every player's
-     * inventory into a single 36-slot one and drops whatever will not fit;
-     * turning it off is safe now but sets up that same merge for later.
-     */
-    private void refreshWarning() {
-        boolean live = SynapticConfig.enabled(Feature.INVENTORY);
-        boolean wanted = (pending & Feature.INVENTORY.bit()) != 0;
-        List<String> lines = live == wanted ? List.of() : wanted ? MERGE_WARNING : SPLIT_WARNING;
-        for (int i = 0; i < warnings.size(); i++) {
-            StringWidget line = warnings.get(i);
-            line.setMessage(i < lines.size()
-                ? Component.literal(lines.get(i)).withStyle(ChatFormatting.RED)
-                : Component.empty());
-            // The grid arranges once, in init(), when these lines are still empty
-            // — and a zero-width widget "centred" in its span lands with its left
-            // edge on the middle of it. Filling in the text later does not re-run
-            // the layout, so the line would draw from that midpoint rightwards.
-            // Re-centre by hand on every change; the grid is centred on the same
-            // midpoint, so the two agree.
-            line.setX(this.width / 2 - line.getWidth() / 2);
-        }
     }
 
     private Button toggleFor(Feature feature) {
         Button toggle = Button.builder(labelFor(feature), button -> {
             pending ^= feature.bit();
-            button.setMessage(labelFor(feature));
-            if (feature == Feature.INVENTORY) refreshWarning();
+            // Warnings appear and disappear with the toggle, and only a fresh
+            // layout can measure and centre them, so these two rebuild the screen
+            // instead of just relabelling their own button.
+            if (feature == Feature.INVENTORY || feature == Feature.KEEP_MINING_PROGRESS) {
+                rebuildWidgets();
+            } else {
+                button.setMessage(labelFor(feature));
+            }
         }).width(BUTTON_WIDTH).build();
         toggle.active = editable;
         toggle.setTooltip(Tooltip.create(Component.literal(feature.description())));
@@ -169,9 +169,11 @@ public final class SynapticSettingsScreen extends Screen {
     }
 
     private Component labelFor(Feature feature) {
-        boolean on = (pending & feature.bit()) != 0;
+        boolean on = wants(feature);
         return Component.literal(feature.label() + ": ")
             .append(Component.literal(on ? "ON" : "OFF")
                 .withStyle(on ? ChatFormatting.GREEN : ChatFormatting.RED));
     }
+
+    private record Warning(List<String> lines, ChatFormatting colour) {}
 }

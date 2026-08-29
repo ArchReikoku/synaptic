@@ -11,7 +11,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Keeps mining progress when the held tool changes mid-break.
+ * Keeps mining progress when the held item changes mid-break.
+ * <p>
+ * This is load-bearing for the shared inventory, not just a convenience for
+ * swapping tools: any change to the held stack counts, so another player picking
+ * up items can reset a break that is already underway, or leave a block
+ * unbreakable while they keep collecting.
  * <p>
  * Vanilla decides whether you are still working on the same block with both the
  * position AND the held stack:

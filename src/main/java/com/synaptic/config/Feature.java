@@ -39,7 +39,9 @@ public enum Feature {
     SOLO_SLEEP(Group.EXTRAS, "Solo Sleep",
         "One player in a bed skips the night. Switching this off puts playersSleepingPercentage back to 100."),
     KEEP_MINING_PROGRESS(Group.EXTRAS, "Tool Swap Mining",
-        "Swapping tools mid-break keeps your mining progress instead of restarting it. Needs the mod on your client.");
+        "Mining progress survives a change of held item. Vanilla restarts the break whenever the held stack changes, "
+            + "which with a shared inventory means another player picking up items can reset your progress — or stop "
+            + "you breaking a block at all. Leave this on. Needs the mod on your client.");
 
     /** How the settings screen files these. */
     public enum Group {
