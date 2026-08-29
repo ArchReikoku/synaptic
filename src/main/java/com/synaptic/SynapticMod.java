@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.synaptic.command.SynapticCommand;
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.SynapticNetworking;
@@ -75,6 +76,7 @@ public final class SynapticMod implements ModInitializer {
     public void onInitialize() {
         SynapticConfig.load();
         SynapticNetworking.register();
+        SynapticCommand.register();
         ServerTickEvents.END_SERVER_TICK.register(SynapticMod::tick);
         // Queued rather than broadcast right here: the hearts-left figure in the
         // message is only settled once this tick's damage has been merged into the

@@ -36,15 +36,7 @@ public final class SynapticNetworking {
                     .withStyle(ChatFormatting.RED));
                 return;
             }
-            int before = SynapticConfig.bits();
-            if (payload.bits() == before) return;
-            SynapticConfig.apply(payload.bits());
-            SynapticConfig.save();
-            // A feature that was off has a stale shared value; re-seed from the
-            // players who are actually here rather than snapping them to it.
-            SynapticMod.reseed();
-            announceInventoryChange(context.server(), before, payload.bits());
-            broadcast(context.server());
+            applyChange(context.server(), payload.bits());
         });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -59,6 +51,23 @@ public final class SynapticNetworking {
                 .append(Component.literal("Synaptic").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD))
                 .append(Component.literal(" - Shared Life").withStyle(ChatFormatting.AQUA)));
         });
+    }
+
+    /**
+     * The one way settings change, whether they came from the screen or from
+     * /synaptic. Saves, re-seeds, announces, and pushes the result to every
+     * client — leaving any of that to the caller is how the two paths drift.
+     */
+    public static void applyChange(MinecraftServer server, int bits) {
+        int before = SynapticConfig.bits();
+        if (bits == before) return;
+        SynapticConfig.apply(bits);
+        SynapticConfig.save();
+        // A feature that was off has a stale shared value; re-seed from the
+        // players who are actually here rather than snapping them to it.
+        SynapticMod.reseed();
+        announceInventoryChange(server, before, bits);
+        broadcast(server);
     }
 
     /**
