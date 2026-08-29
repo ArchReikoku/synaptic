@@ -7,7 +7,7 @@
   "authors": [
     "Reikoku"
   ],
-  "license": "All Rights Reserved",
+  "license": "MIT",
   "icon": "assets/synaptic/icon.png",
   "environment": "*",
   "entrypoints": {
