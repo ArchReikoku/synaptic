@@ -1,5 +1,6 @@
 package com.synaptic.client;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.synaptic.config.Feature;
@@ -13,6 +14,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.layouts.GridLayout;
+import net.minecraft.client.gui.layouts.LayoutSettings;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.permissions.Permissions;
@@ -25,6 +27,13 @@ import net.minecraft.server.permissions.Permissions;
  * version of the game replaced the old immediate-mode drawing API, and letting
  * the widgets draw themselves avoids touching the new one at all.
  * <p>
+ * Every child is added with its own centring {@link LayoutSettings}. This game
+ * version dropped StringWidget's alignment methods, and the widget reports its
+ * own width as the width of its text, so text is only centred by centring the
+ * whole widget inside its cell. Warning lines are kept shorter than the button
+ * block for the same reason: a line wider than the grid would widen the columns
+ * and push the two button rows apart.
+ * <p>
  * Nothing is sent until Done: the pending mask is edited locally so a misclick
  * can be walked back with Cancel, and one packet carries the result. The server
  * re-checks permission regardless of what this screen allows.
@@ -34,11 +43,19 @@ public final class SynapticSettingsScreen extends Screen {
     private static final int BUTTON_WIDTH = 140;
     private static final int ROW_HEIGHT = 20;
     private static final int SPACING = 6;
-    private static final int FULL_WIDTH = BUTTON_WIDTH * COLUMNS + SPACING;
+    private static final int WARNING_LINES = 3;
+
+    private static final List<String> MERGE_WARNING = List.of(
+        "Shared inventory ON merges everyone's items",
+        "into one 36-slot inventory.",
+        "Anything that does not fit is destroyed.");
+    private static final List<String> SPLIT_WARNING = List.of(
+        "Shared inventory OFF stops items syncing.",
+        "Turning it back on later merges everyone's",
+        "inventories and destroys the overflow.");
 
     private final boolean editable;
-    private StringWidget warningTop;
-    private StringWidget warningBottom;
+    private final List<StringWidget> warnings = new ArrayList<>();
     private int pending;
 
     public SynapticSettingsScreen() {
@@ -49,40 +66,42 @@ public final class SynapticSettingsScreen extends Screen {
             && minecraft.player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
     }
 
+    private static LayoutSettings centred() {
+        return LayoutSettings.defaults().alignHorizontallyCenter();
+    }
+
     @Override
     protected void init() {
         this.pending = SynapticConfig.bits();
+        this.warnings.clear();
 
         GridLayout grid = new GridLayout();
         grid.spacing(SPACING);
-        // Everything sits centred in its cell, so a button that spans the full
-        // width lands in the middle instead of hugging the left column.
-        grid.defaultCellSetting().alignHorizontallyCenter();
         GridLayout.RowHelper rows = grid.createRowHelper(COLUMNS);
 
-        rows.addChild(label(this.title.copy().withStyle(ChatFormatting.BOLD)), COLUMNS);
+        rows.addChild(label(this.title.copy().withStyle(ChatFormatting.BOLD)), COLUMNS, centred());
         rows.addChild(label(editable
             ? Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY)
-            : Component.literal("Operators only — you can look, but not change")
-                .withStyle(ChatFormatting.RED)), COLUMNS);
+            : Component.literal("Operators only — you can look, not change")
+                .withStyle(ChatFormatting.RED)), COLUMNS, centred());
 
-        // Two empty lines held open for the inventory warning, so the layout does
-        // not jump around underneath the cursor when it appears.
-        warningTop = label(Component.empty());
-        warningBottom = label(Component.empty());
-        rows.addChild(warningTop, COLUMNS);
-        rows.addChild(warningBottom, COLUMNS);
+        // Held open empty so the rows below do not jump when a warning appears.
+        for (int i = 0; i < WARNING_LINES; i++) {
+            StringWidget line = label(Component.empty());
+            warnings.add(line);
+            rows.addChild(line, COLUMNS, centred());
+        }
 
         for (Feature.Group group : Feature.Group.values()) {
             List<Feature> features = Feature.of(group);
             rows.addChild(label(Component.literal(group.title())
-                .withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)), COLUMNS);
+                .withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)), COLUMNS, centred());
             for (int i = 0; i < features.size(); i++) {
                 boolean lastAndOdd = i == features.size() - 1 && features.size() % COLUMNS != 0;
                 // An odd group's final button spans both columns rather than
                 // sitting in the left one with a hole beside it.
-                if (lastAndOdd) rows.addChild(toggleFor(features.get(i)), COLUMNS);
-                else rows.addChild(toggleFor(features.get(i)));
+                if (lastAndOdd) rows.addChild(toggleFor(features.get(i)), COLUMNS, centred());
+                else rows.addChild(toggleFor(features.get(i)), centred());
             }
         }
 
@@ -91,9 +110,9 @@ public final class SynapticSettingsScreen extends Screen {
                 ClientPlayNetworking.send(new ConfigUpdatePayload(pending));
             }
             onClose();
-        }).width(BUTTON_WIDTH).build());
+        }).width(BUTTON_WIDTH).build(), centred());
         rows.addChild(Button.builder(Component.literal("Cancel"), button -> onClose())
-            .width(BUTTON_WIDTH).build());
+            .width(BUTTON_WIDTH).build(), centred());
 
         refreshWarning();
 
@@ -111,20 +130,12 @@ public final class SynapticSettingsScreen extends Screen {
     private void refreshWarning() {
         boolean live = SynapticConfig.enabled(Feature.INVENTORY);
         boolean wanted = (pending & Feature.INVENTORY.bit()) != 0;
-        if (live == wanted) {
-            warningTop.setMessage(Component.empty());
-            warningBottom.setMessage(Component.empty());
-        } else if (wanted) {
-            warningTop.setMessage(red("Turning shared inventory ON merges every player's items into one"));
-            warningBottom.setMessage(red("36-slot inventory. Whatever does not fit is destroyed for good."));
-        } else {
-            warningTop.setMessage(red("Turning shared inventory OFF splits you apart: each player keeps what"));
-            warningBottom.setMessage(red("they hold now, and switching it back on later merges and destroys again."));
+        List<String> lines = live == wanted ? List.of() : wanted ? MERGE_WARNING : SPLIT_WARNING;
+        for (int i = 0; i < warnings.size(); i++) {
+            warnings.get(i).setMessage(i < lines.size()
+                ? Component.literal(lines.get(i)).withStyle(ChatFormatting.RED)
+                : Component.empty());
         }
-    }
-
-    private static Component red(String text) {
-        return Component.literal(text).withStyle(ChatFormatting.RED);
     }
 
     private Button toggleFor(Feature feature) {
@@ -138,8 +149,13 @@ public final class SynapticSettingsScreen extends Screen {
         return toggle;
     }
 
+    /**
+     * Sized to the text rather than to the column: StringWidget reports its text
+     * width as its own, so a fixed width here would be ignored by the layout and
+     * only confuse the centring.
+     */
     private StringWidget label(Component text) {
-        return new StringWidget(FULL_WIDTH, ROW_HEIGHT, text, this.font);
+        return new StringWidget(text, this.font);
     }
 
     private Component labelFor(Feature feature) {
