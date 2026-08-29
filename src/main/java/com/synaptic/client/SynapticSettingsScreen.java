@@ -114,11 +114,13 @@ public final class SynapticSettingsScreen extends Screen {
         rows.addChild(Button.builder(Component.literal("Cancel"), button -> onClose())
             .width(BUTTON_WIDTH).build(), centred());
 
-        refreshWarning();
-
         grid.arrangeElements();
         grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
         grid.visitWidgets(this::addRenderableWidget);
+
+        // After the layout, never before: this re-centres the warning lines, and
+        // arrangeElements would overwrite that.
+        refreshWarning();
     }
 
     /**
@@ -132,9 +134,17 @@ public final class SynapticSettingsScreen extends Screen {
         boolean wanted = (pending & Feature.INVENTORY.bit()) != 0;
         List<String> lines = live == wanted ? List.of() : wanted ? MERGE_WARNING : SPLIT_WARNING;
         for (int i = 0; i < warnings.size(); i++) {
-            warnings.get(i).setMessage(i < lines.size()
+            StringWidget line = warnings.get(i);
+            line.setMessage(i < lines.size()
                 ? Component.literal(lines.get(i)).withStyle(ChatFormatting.RED)
                 : Component.empty());
+            // The grid arranges once, in init(), when these lines are still empty
+            // — and a zero-width widget "centred" in its span lands with its left
+            // edge on the middle of it. Filling in the text later does not re-run
+            // the layout, so the line would draw from that midpoint rightwards.
+            // Re-centre by hand on every change; the grid is centred on the same
+            // midpoint, so the two agree.
+            line.setX(this.width / 2 - line.getWidth() / 2);
         }
     }
 
