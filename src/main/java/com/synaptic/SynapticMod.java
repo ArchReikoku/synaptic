@@ -15,6 +15,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.ChatFormatting;
+import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
@@ -33,11 +34,13 @@ import net.minecraft.world.level.gamerules.GameRules;
 /** Shared health, hunger, effects, experience, and inventory state contributed to by every online player. */
 public final class SynapticMod implements ModInitializer {
     private static final int SHARED_INVENTORY_SLOTS = 41; // 36 inventory + 4 armor + offhand
+    private static final int ENDER_CHEST_SLOTS = 27;
     private static final String HEART = "❤";
     private static final Map<UUID, PlayerState> lastStates = new HashMap<>();
     private static final Map<UUID, InventorySnapshot> lastInventories = new HashMap<>();
     private static final Map<Holder<MobEffect>, MobEffectInstance> sharedEffects = new HashMap<>();
-    private static final ItemStack[] sharedInventory = emptyInventory();
+    private static final ItemStack[] sharedInventory = emptyStacks(SHARED_INVENTORY_SLOTS);
+    private static final ItemStack[] sharedEnderChest = emptyStacks(ENDER_CHEST_SLOTS);
     private static final List<DamageReport> pendingDamage = new ArrayList<>();
     private static float sharedHealth;
     private static int sharedFood;
@@ -49,6 +52,9 @@ public final class SynapticMod implements ModInitializer {
     private static boolean initialized;
     private static int tick;
     private static volatile int playerCount = 1;
+    private static boolean cascadingDeath;
+    private static boolean sharingAdvancement;
+    private static MinecraftServer currentServer;
 
     /** How many ways the hunger cost of moving around is split. See FoodDataMixin. */
     public static int sharedPlayerCount() {
@@ -75,13 +81,22 @@ public final class SynapticMod implements ModInitializer {
         // shared bar, which happens at END_SERVER_TICK.
         ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, base, taken, blocked) -> {
             if (!(entity instanceof ServerPlayer player) || taken <= 0.0F) return;
+            // The cascade below is bookkeeping, not something that happened to
+            // anyone: reporting it would bury the real death under a wall of
+            // "took 1000 damage" lines.
+            if (cascadingDeath) return;
             pendingDamage.add(new DamageReport(player.getUUID(),
                 player.getGameProfile().name(), taken, describeSource(source)));
+        });
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+            if (entity instanceof ServerPlayer player) killEveryoneElse(player);
         });
     }
 
     private static void tick(MinecraftServer server) {
+        currentServer = server;
         allowSoloSleep(server);
+        forceKeepInventory(server);
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         playerCount = players.size();
         if (players.isEmpty()) {
@@ -96,11 +111,13 @@ public final class SynapticMod implements ModInitializer {
         if (!initialized) {
             initializeSharedBars(players);
             initializeSharedInventory(players);
+            initializeSharedEnderChest(players);
             initializeSharedEffects(players);
             initialized = true;
         } else {
             applyBarChangesFromEveryone(players);
             if (SynapticConfig.enabled(Feature.INVENTORY)) applyInventoryChangesFromEveryone(players);
+            if (SynapticConfig.enabled(Feature.ENDER_CHEST)) applyEnderChestChangesFromEveryone(players);
             if (SynapticConfig.enabled(Feature.EFFECTS)) mergeEffectsFromEveryone(players);
         }
 
@@ -124,6 +141,52 @@ public final class SynapticMod implements ModInitializer {
     }
 
     /**
+     * One death is everyone's death. Health is pooled, so a fatal blow already
+     * empties everyone's bar — but only the player actually struck goes through
+     * vanilla's death path. The rest would sit at zero hearts in a half-dead
+     * state, with no death message and nothing dropped. This finishes the job
+     * properly for them.
+     */
+    private static void killEveryoneElse(ServerPlayer dead) {
+        if (cascadingDeath || !SynapticConfig.enabled(Feature.DEATH)) return;
+        MinecraftServer server = dead.level().getServer();
+        if (server == null) return;
+        cascadingDeath = true;
+        try {
+            for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
+                if (player == dead || player.isDeadOrDying() || player.isSpectator()) continue;
+                player.hurtServer(player.level(), player.damageSources().genericKill(), Float.MAX_VALUE);
+            }
+        } finally {
+            cascadingDeath = false;
+        }
+    }
+
+    /**
+     * Hand an advancement one player just earned to everybody else. Called from
+     * PlayerAdvancementsMixin for each criterion as it is granted, so partially
+     * completed advancements travel too rather than only finished ones.
+     * <p>
+     * The re-entrancy guard matters: awarding to the others runs this again from
+     * inside itself, once per player, which without it recurses until the stack
+     * gives out.
+     */
+    public static void shareAdvancement(AdvancementHolder advancement, String criterion) {
+        if (sharingAdvancement || currentServer == null
+            || !SynapticConfig.enabled(Feature.ADVANCEMENTS)) {
+            return;
+        }
+        sharingAdvancement = true;
+        try {
+            for (ServerPlayer player : List.copyOf(currentServer.getPlayerList().getPlayers())) {
+                player.getAdvancements().award(advancement, criterion);
+            }
+        } finally {
+            sharingAdvancement = false;
+        }
+    }
+
+    /**
      * One player in a bed is enough to pass the night: the sleeper count vanilla
      * derives from this percentage floors at one, so any value this low means
      * "whoever lies down first".
@@ -134,6 +197,23 @@ public final class SynapticMod implements ModInitializer {
         Integer required = rules.get(GameRules.PLAYERS_SLEEPING_PERCENTAGE);
         if (required == null || required != wanted) {
             rules.set(GameRules.PLAYERS_SLEEPING_PERCENTAGE, wanted, server);
+        }
+    }
+
+    /**
+     * Every player carries the same shared inventory, so without keepInventory a
+     * shared death drops one copy per player — the whole inventory duplicated
+     * across the floor while the shared pool is wiped.
+     * <p>
+     * Only ever forced ON. Forcing it back off when the toggle is cleared would
+     * overrule a preference the world may hold for its own reasons, and unlike
+     * the on case there is no bug being prevented.
+     */
+    private static void forceKeepInventory(MinecraftServer server) {
+        if (!SynapticConfig.enabled(Feature.KEEP_INVENTORY)) return;
+        GameRules rules = server.getGameRules();
+        if (!Boolean.TRUE.equals(rules.get(GameRules.KEEP_INVENTORY))) {
+            rules.set(GameRules.KEEP_INVENTORY, true, server);
         }
     }
 
@@ -236,7 +316,13 @@ public final class SynapticMod implements ModInitializer {
         // itself. So these are summed at full weight: a whole point spent is a
         // whole point off the shared bar.
         if (SynapticConfig.enabled(Feature.HEALTH)) {
-            sharedHealth = Math.max(0.0F, sharedHealth + healthDelta);
+            // Capped at a full bar, not just at zero. Respawning restores each
+            // player to full, and every one of those counts as a gain here — so a
+            // four-player death would otherwise bank four bars' worth of hidden
+            // health that has to be chewed through before a heart moves again.
+            float fullBar = 20.0F;
+            for (ServerPlayer player : players) fullBar = Math.max(fullBar, player.getMaxHealth());
+            sharedHealth = Math.max(0.0F, Math.min(fullBar, sharedHealth + healthDelta));
         }
         if (SynapticConfig.enabled(Feature.HUNGER)) {
             sharedFood = Math.max(0, Math.min(20, sharedFood + foodDelta));
@@ -291,6 +377,47 @@ public final class SynapticMod implements ModInitializer {
                 }
             }
         }
+    }
+
+    /**
+     * Same pooling as the main inventory, in its own 27 slots. Players carrying an
+     * identical copy are skipped for the same reason: after a settings change
+     * everyone is usually holding the same shared chest, and merging those copies
+     * would multiply every stack by the player count.
+     */
+    private static void initializeSharedEnderChest(List<ServerPlayer> players) {
+        Arrays.fill(sharedEnderChest, ItemStack.EMPTY);
+        List<ServerPlayer> merged = new ArrayList<>();
+        for (ServerPlayer player : players) {
+            if (merged.stream().anyMatch(other -> sameEnderChest(other, player))) continue;
+            merged.add(player);
+            for (int slot = 0; slot < ENDER_CHEST_SLOTS; slot++) {
+                addToPool(sharedEnderChest, ENDER_CHEST_SLOTS, player.getEnderChestInventory().getItem(slot));
+            }
+        }
+    }
+
+    private static void applyEnderChestChangesFromEveryone(List<ServerPlayer> players) {
+        for (ServerPlayer player : players) {
+            InventorySnapshot previous = lastInventories.get(player.getUUID());
+            if (previous == null) continue;
+            for (int slot = 0; slot < ENDER_CHEST_SLOTS; slot++) {
+                ItemStack current = player.getEnderChestInventory().getItem(slot);
+                if (!ItemStack.matches(current, previous.enderChest[slot])) {
+                    sharedEnderChest[slot] = current.copy();
+                }
+            }
+        }
+    }
+
+    private static boolean sameEnderChest(ServerPlayer left, ServerPlayer right) {
+        for (int slot = 0; slot < ENDER_CHEST_SLOTS; slot++) {
+            if (!ItemStack.matches(left.getEnderChestInventory().getItem(slot),
+                right.getEnderChestInventory().getItem(slot))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void applyInventoryChangesFromEveryone(List<ServerPlayer> players) {
@@ -384,13 +511,25 @@ public final class SynapticMod implements ModInitializer {
                 }
             }
         }
+        if (SynapticConfig.enabled(Feature.ENDER_CHEST)) {
+            for (int slot = 0; slot < ENDER_CHEST_SLOTS; slot++) {
+                if (!ItemStack.matches(player.getEnderChestInventory().getItem(slot), sharedEnderChest[slot])) {
+                    player.getEnderChestInventory().setItem(slot, sharedEnderChest[slot].copy());
+                }
+            }
+        }
     }
 
     private static void addToSharedPool(ItemStack incoming) {
+        addToPool(sharedInventory, 36, incoming);
+    }
+
+    /** Merge a stack into a pool, combining with matching stacks before taking a free slot. */
+    private static void addToPool(ItemStack[] pool, int slots, ItemStack incoming) {
         if (incoming.isEmpty()) return;
         ItemStack remaining = incoming.copy();
-        for (int slot = 0; slot < 36 && !remaining.isEmpty(); slot++) {
-            ItemStack existing = sharedInventory[slot];
+        for (int slot = 0; slot < slots && !remaining.isEmpty(); slot++) {
+            ItemStack existing = pool[slot];
             if (!existing.isEmpty() && ItemStack.isSameItemSameComponents(existing, remaining)) {
                 int room = existing.getMaxStackSize() - existing.getCount();
                 int moved = Math.min(room, remaining.getCount());
@@ -398,10 +537,10 @@ public final class SynapticMod implements ModInitializer {
                 remaining.shrink(moved);
             }
         }
-        for (int slot = 0; slot < 36 && !remaining.isEmpty(); slot++) {
-            if (sharedInventory[slot].isEmpty()) {
+        for (int slot = 0; slot < slots && !remaining.isEmpty(); slot++) {
+            if (pool[slot].isEmpty()) {
                 int moved = Math.min(remaining.getMaxStackSize(), remaining.getCount());
-                sharedInventory[slot] = remaining.copyWithCount(moved);
+                pool[slot] = remaining.copyWithCount(moved);
                 remaining.shrink(moved);
             }
         }
@@ -421,17 +560,21 @@ public final class SynapticMod implements ModInitializer {
         for (int slot = 0; slot < SHARED_INVENTORY_SLOTS; slot++) {
             items[slot] = player.getInventory().getItem(slot).copy();
         }
-        return new InventorySnapshot(items);
+        ItemStack[] ender = new ItemStack[ENDER_CHEST_SLOTS];
+        for (int slot = 0; slot < ENDER_CHEST_SLOTS; slot++) {
+            ender[slot] = player.getEnderChestInventory().getItem(slot).copy();
+        }
+        return new InventorySnapshot(items, ender);
     }
 
-    private static ItemStack[] emptyInventory() {
-        ItemStack[] items = new ItemStack[SHARED_INVENTORY_SLOTS];
+    private static ItemStack[] emptyStacks(int size) {
+        ItemStack[] items = new ItemStack[size];
         Arrays.fill(items, ItemStack.EMPTY);
         return items;
     }
 
     private record PlayerState(float health, int food, float saturation, float absorption,
                                int xpLevel, float xpProgress, int xpTotal) {}
-    private record InventorySnapshot(ItemStack[] items) {}
+    private record InventorySnapshot(ItemStack[] items, ItemStack[] enderChest) {}
     private record DamageReport(UUID victim, String name, float damage, String cause) {}
 }

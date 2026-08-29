@@ -4,7 +4,8 @@
   "package": "com.synaptic.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "FoodDataMixin"
+    "FoodDataMixin",
+    "PlayerAdvancementsMixin"
   ],
   "client": [
     "MultiPlayerGameModeMixin"
