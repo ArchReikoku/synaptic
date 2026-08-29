@@ -44,6 +44,7 @@ public final class SynapticSettingsScreen extends Screen {
     private static final int COLUMNS = 2;
     private static final int BUTTON_WIDTH = 140;
     private static final int SPACING = 6;
+    private static final int FOOTER_MARGIN = 10;
 
     private static final List<String> MERGE_WARNING = List.of(
         "Shared inventory ON merges everyone's items",
@@ -128,14 +129,17 @@ public final class SynapticSettingsScreen extends Screen {
             }
         }
 
+        // Set apart from the toggles above: these two commit or discard the lot,
+        // and reading as just another row invites clicking one by accident.
+        LayoutSettings footer = centred().paddingTop(FOOTER_MARGIN);
         rows.addChild(Button.builder(Component.literal("Done"), button -> {
             if (editable && pending != SynapticConfig.bits()) {
                 ClientPlayNetworking.send(new ConfigUpdatePayload(pending));
             }
             onClose();
-        }).width(BUTTON_WIDTH).build(), centred());
+        }).width(BUTTON_WIDTH).build(), footer);
         rows.addChild(Button.builder(Component.literal("Cancel"), button -> onClose())
-            .width(BUTTON_WIDTH).build(), centred());
+            .width(BUTTON_WIDTH).build(), footer);
 
         grid.arrangeElements();
         grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
