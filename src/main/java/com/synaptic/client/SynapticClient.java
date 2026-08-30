@@ -19,7 +19,10 @@ public final class SynapticClient implements ClientModInitializer {
         // The server pushes this on join and after every change, so the screen and
         // the client-side features always read the values actually in force.
         ClientPlayNetworking.registerGlobalReceiver(ConfigSyncPayload.TYPE,
-            (payload, context) -> SynapticConfig.apply(payload.bits()));
+            (payload, context) -> {
+                SynapticConfig.apply(payload.bits());
+                SynapticConfig.setEditable(payload.editable());
+            });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (OPEN_SETTINGS.consumeClick()) {

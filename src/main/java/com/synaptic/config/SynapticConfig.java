@@ -25,6 +25,8 @@ public final class SynapticConfig {
     private static final String FILE_NAME = "synaptic.properties";
 
     private static volatile int bits = allEnabled();
+    /** Client-side only: what the server said this player may do. */
+    private static volatile boolean editable;
 
     private SynapticConfig() {
     }
@@ -41,6 +43,19 @@ public final class SynapticConfig {
 
     public static int bits() {
         return bits;
+    }
+
+    /**
+     * Whether this client's player may change the settings, as decided by the
+     * server and sent with them. Meaningless server-side, where the question is
+     * asked per player rather than once for the game.
+     */
+    public static boolean editable() {
+        return editable;
+    }
+
+    public static void setEditable(boolean allowed) {
+        editable = allowed;
     }
 
     public static void apply(int newBits) {

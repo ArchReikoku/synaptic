@@ -9,7 +9,6 @@ import com.synaptic.net.ConfigUpdatePayload;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.components.Tooltip;
@@ -17,7 +16,6 @@ import net.minecraft.client.gui.layouts.GridLayout;
 import net.minecraft.client.gui.layouts.LayoutSettings;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.permissions.Permissions;
 
 /**
  * Feature toggles for the whole server, opened with the Synaptic key (K by
@@ -68,9 +66,10 @@ public final class SynapticSettingsScreen extends Screen {
         // Set here and not in init(), which runs again on every rebuild and would
         // throw away edits that have not been sent yet.
         this.pending = SynapticConfig.bits();
-        Minecraft minecraft = Minecraft.getInstance();
-        this.editable = minecraft.player != null
-            && minecraft.player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
+        // Straight from the server, which decided this per player and sent it
+        // alongside the settings. Working the rule out again on this side is what
+        // greyed the buttons out for a host playing without cheats.
+        this.editable = SynapticConfig.editable();
     }
 
     private static LayoutSettings centred() {
@@ -106,7 +105,7 @@ public final class SynapticSettingsScreen extends Screen {
         rows.addChild(label(this.title.copy().withStyle(ChatFormatting.BOLD)), COLUMNS, centred());
         rows.addChild(label(editable
             ? Component.literal("Applies to everyone on the server").withStyle(ChatFormatting.GRAY)
-            : Component.literal("Operators only — you can look, not change")
+            : Component.literal("Only the host can change these — you can look")
                 .withStyle(ChatFormatting.RED)), COLUMNS, centred());
 
         for (Warning warning : warnings()) {

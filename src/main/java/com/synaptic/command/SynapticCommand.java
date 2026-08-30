@@ -14,6 +14,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permissions;
 
 /**
@@ -46,6 +47,11 @@ public final class SynapticCommand {
     }
 
     private static boolean mayConfigure(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        // Same rule as the screen, asked in the same place, so the two routes
+        // cannot disagree about who is allowed to change what.
+        if (player != null) return SynapticNetworking.canConfigure(player);
+        // No player behind it: the server console, which outranks everyone.
         return source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
     }
 

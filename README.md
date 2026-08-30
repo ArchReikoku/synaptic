@@ -46,8 +46,10 @@ Press **K** in game for the settings screen, or use the command:
 ```
 
 Settings apply to the whole server and are saved to `config/synaptic.properties`.
-Reading them is open to anyone; changing them needs operator permission (the same bar as
-`/gamerule`), or being the owner of a singleplayer world.
+Reading them is open to anyone. Changing them is limited to **the host**: on a world you
+opened yourself, singleplayer or over LAN, that is you and nobody else — no cheats
+required, and guests do not get a say even if they are opped. On a dedicated server,
+where there is no host sitting at the game, it is operators instead.
 
 ## Installing
 
