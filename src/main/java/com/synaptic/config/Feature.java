@@ -29,6 +29,8 @@ public enum Feature {
         "An advancement earned by one player is granted to everyone, including recipe unlocks."),
     PETS(Group.SHARED, "Pets",
         "Every tamed animal answers to everyone: sit it down, dye its collar, feed it or armour it as if it were yours. Shared pets never turn on a player, and one that follows will follow whoever handled it last."),
+    MOB_ANGER(Group.SHARED, "Mob Anger",
+        "Provoke a neutral mob and it turns on the whole group rather than only whoever provoked it — iron golems, bees, wolves, polar bears, endermen, zombified piglins. Only players the mob could already see are drawn in; someone far away is never targeted."),
 
     KEEP_INVENTORY(Group.EXTRAS, "Keep Inventory",
         "Forces the keepInventory gamerule on while inventories are shared. Without it every player drops a copy of the shared inventory on death, duplicating all of it on the ground."),
