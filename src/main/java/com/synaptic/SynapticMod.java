@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.synaptic.command.SynapticCommand;
@@ -30,6 +31,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -40,6 +42,13 @@ public final class SynapticMod implements ModInitializer {
     private static final int SHARED_INVENTORY_SLOTS = 41; // 36 inventory + 4 armor + offhand
     private static final int ENDER_CHEST_SLOTS = 27;
     private static final String HEART = "❤";
+    /**
+     * Damage types every player suffers at the same instant because the thing
+     * causing them is shared: poison and instant harming arrive as "magic", the
+     * wither effect as "wither", and an empty shared hunger bar as "starve".
+     */
+    private static final Set<String> SHARED_CAUSE_DAMAGE = Set.of("magic", "wither", "starve");
+    private static final Map<String, Long> sharedDamageTick = new HashMap<>();
     private static final Map<UUID, PlayerState> lastStates = new HashMap<>();
     private static final Map<UUID, InventorySnapshot> lastInventories = new HashMap<>();
     private static final Map<Holder<MobEffect>, MobEffectInstance> sharedEffects = new HashMap<>();
@@ -57,6 +66,7 @@ public final class SynapticMod implements ModInitializer {
     private static int tick;
     private static volatile int playerCount = 1;
     private static boolean cascadingDeath;
+    private static long serverTick;
     private static boolean sharingAdvancement;
     private static MinecraftServer currentServer;
 
@@ -93,6 +103,7 @@ public final class SynapticMod implements ModInitializer {
             pendingDamage.add(new DamageReport(player.getUUID(),
                 player.getGameProfile().name(), taken, describeSource(source)));
         });
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register(SynapticMod::allowSharedSourceDamage);
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
             if (entity instanceof ServerPlayer player) killEveryoneElse(player);
         });
@@ -113,6 +124,12 @@ public final class SynapticMod implements ModInitializer {
 
     private static void tick(MinecraftServer server) {
         currentServer = server;
+        // Bumped before anything else reads it. Damage events fire during entity
+        // ticking, which is finished by the time this runs, so every hit within
+        // one game tick carries the same stamp — and the stamp keeps moving, or
+        // the first poison tick would be the only one that ever landed.
+        serverTick++;
+        sharedDamageTick.values().removeIf(stamp -> stamp < serverTick - 1);
         allowSoloSleep(server);
         forceKeepInventory(server);
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
@@ -156,6 +173,33 @@ public final class SynapticMod implements ModInitializer {
                 player.containerMenu.broadcastChanges();
             }
         }
+    }
+
+    /**
+     * Damage whose cause is itself shared lands on the group once, not once per
+     * player.
+     * <p>
+     * Poison is the clear case. The effect is shared, so every player is poisoned
+     * at once, every one of them takes the tick, and the health merge sums all of
+     * it — four players poisoned drain the shared bar four times as fast as one,
+     * which kills a full group from a single spider. Starving does the same thing
+     * through the shared hunger bar, and wither through its shared effect.
+     * <p>
+     * The first player to take such a hit in a tick pays it and the rest are
+     * waved through, so the bar moves by what one player suffered. Damage with a
+     * real source behind it — a mob, a fall, fire — is untouched: those genuinely
+     * happened to each player separately and should still stack.
+     */
+    private static boolean allowSharedSourceDamage(LivingEntity entity, DamageSource source, float amount) {
+        if (!(entity instanceof ServerPlayer) || !SynapticConfig.enabled(Feature.HEALTH)) return true;
+        if (!SHARED_CAUSE_DAMAGE.contains(source.getMsgId())) return true;
+        // Keyed on the amount as well, so two different doses in one tick are not
+        // mistaken for the same event arriving twice.
+        String signature = source.getMsgId() + ":" + amount;
+        Long alreadyPaid = sharedDamageTick.get(signature);
+        if (alreadyPaid != null && alreadyPaid == serverTick) return false;
+        sharedDamageTick.put(signature, serverTick);
+        return true;
     }
 
     /**
