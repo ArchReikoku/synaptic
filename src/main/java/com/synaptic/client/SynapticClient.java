@@ -1,7 +1,10 @@
 package com.synaptic.client;
 
 import com.synaptic.config.SynapticConfig;
+import com.synaptic.net.CaptureFramePayload;
 import com.synaptic.net.ConfigSyncPayload;
+import com.synaptic.net.LobbyStatePayload;
+import com.synaptic.net.StatsSyncPayload;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -24,7 +27,18 @@ public final class SynapticClient implements ClientModInitializer {
                 SynapticConfig.setEditable(payload.editable());
             });
 
+        ClientPlayNetworking.registerGlobalReceiver(StatsSyncPayload.TYPE,
+            (payload, context) -> SessionTable.accept(payload));
+
+        ClientPlayNetworking.registerGlobalReceiver(LobbyStatePayload.TYPE,
+            (payload, context) -> LobbyClient.accept(payload));
+
+        ClientPlayNetworking.registerGlobalReceiver(CaptureFramePayload.TYPE,
+            (payload, context) -> LobbyClient.requestCapture(payload.slot()));
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            // Drives the duck-shoot-restore around each preview capture.
+            LobbyClient.clientTick(client);
             while (OPEN_SETTINGS.consumeClick()) {
                 // Vanilla only fires keybinds while no screen is open, so reaching
                 // here already means the game is the active view.

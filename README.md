@@ -2,7 +2,7 @@
 
 **One life, shared.** A Fabric mod for Minecraft 26.2 that pools health, hunger, experience,
 status effects, advancements, pets, the inventory and the ender chest across every player
-online — and if one player dies, everyone dies.
+online — and if one player dies, everyone dies, then comes back together.
 
 Built for hardcore co-op: the group succeeds or fails together, and there is no quietly
 banking your own supplies while someone else starves.
@@ -15,6 +15,7 @@ banking your own supplies while someone else starves.
 |---|---|
 | **Life** | Health, golden hearts and damage are pooled. Everyone's hearts move together, and a hit on one is a hit on all. |
 | **Death** | One death is everyone's death. When any player dies the rest are killed with them. |
+| **Respawn** | One respawn is everyone's respawn. Whoever clicks Respawn first brings the whole group back at the same moment, so nobody is left sitting on the death screen. |
 | **Hunger** | Food and saturation are pooled, so the group eats and starves as one. |
 | **Inventory** | One inventory for everyone, armour and offhand included. Each player still holds their own slot and can use it freely. |
 | **Ender Chest** | A second shared pool of 27 slots, separate from the main inventory. |
@@ -33,6 +34,8 @@ banking your own supplies while someone else starves.
 | **Damage Chat** | Announces every hit with the damage, its cause and the hearts left: `Steve took 1.5❤ damage from fall (3.5❤ left)` |
 | **Damage Sound** | Everyone hears a hurt sound when anyone is hit, however far apart you are. |
 | **Solo Sleep** | One player in a bed skips the night. |
+| **Next Run** | A Next Run button on the death screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, wipes inventories and deletes the run you came from — without anyone disconnecting. Host only. |
+| **Session Tab** | Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned — for everyone who has joined. Kept across world resets; offline players stay listed, dimmed. |
 | **Tool Swap Mining** | Mining progress survives a change of held item — see the note below. |
 
 Every one of these can be switched off individually.
