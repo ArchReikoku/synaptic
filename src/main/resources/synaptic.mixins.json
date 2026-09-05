@@ -7,10 +7,17 @@
     "FoodDataMixin",
     "PlayerAdvancementsMixin",
     "TamableAnimalMixin",
-    "MobMixin"
+    "MobMixin",
+    "MinecraftServerAccessor",
+    "ServerLevelSeedMixin",
+    "PlayerStatsMixin",
+    "LivingEntityEatMixin"
   ],
   "client": [
-    "MultiPlayerGameModeMixin"
+    "MultiPlayerGameModeMixin",
+    "PlayerTabOverlayMixin",
+    "HudTabListMixin",
+    "DeathScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

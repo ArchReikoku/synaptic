@@ -1,8 +1,18 @@
 package com.synaptic.net;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
 import com.synaptic.SynapticMod;
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
+import com.synaptic.stats.SessionStats;
+import com.synaptic.world.LobbyManager;
+import com.synaptic.world.RunManager;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -18,12 +28,57 @@ import net.minecraft.server.permissions.Permissions;
  * the only authoritative one. Clients may ask for a change; the server decides.
  */
 public final class SynapticNetworking {
+    /** Seconds each player has been connected, for the unmodded check below. */
+    private static final Map<UUID, Integer> connectedFor = new HashMap<>();
+    private static final Set<UUID> warnedUnmodded = new HashSet<>();
+
     private SynapticNetworking() {
     }
 
     public static void register() {
         PayloadTypeRegistry.clientboundPlay().register(ConfigSyncPayload.TYPE, ConfigSyncPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(StatsSyncPayload.TYPE, StatsSyncPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConfigUpdatePayload.TYPE, ConfigUpdatePayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(NextRunPayload.TYPE, NextRunPayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(LobbyActionPayload.TYPE, LobbyActionPayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(FrameReadyPayload.TYPE, FrameReadyPayload.CODEC);
+
+        // Not permission checked: this is a client reporting on its own tour, and
+        // the worst a forged one can do is give that player a dark tile.
+        ServerPlayNetworking.registerGlobalReceiver(FrameReadyPayload.TYPE, (payload, context) ->
+            LobbyManager.acknowledge(context.server(), context.player(), payload.slot()));
+        PayloadTypeRegistry.clientboundPlay().register(LobbyStatePayload.TYPE, LobbyStatePayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(CaptureFramePayload.TYPE, CaptureFramePayload.CODEC);
+
+        ServerPlayNetworking.registerGlobalReceiver(LobbyActionPayload.TYPE, (payload, context) -> {
+            ServerPlayer player = context.player();
+            if (!canConfigure(player)) {
+                player.sendSystemMessage(Component.literal("Only the host can choose the world.")
+                    .withStyle(ChatFormatting.RED));
+                return;
+            }
+            MinecraftServer server = context.server();
+            switch (payload.action()) {
+                case LobbyActionPayload.PICK -> LobbyManager.pick(server, payload.value());
+                case LobbyActionPayload.RECYCLE -> LobbyManager.recycle(server);
+                case LobbyActionPayload.RESIZE -> LobbyManager.resize(server, payload.value());
+                default -> { }
+            }
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(NextRunPayload.TYPE, (payload, context) -> {
+            ServerPlayer player = context.player();
+            // Same bar as the settings: a run reset throws away everyone's world,
+            // so it is the host's call and nobody else's.
+            if (!canConfigure(player)) {
+                player.sendSystemMessage(Component.literal("Only the host can start the next run.")
+                    .withStyle(ChatFormatting.RED));
+                return;
+            }
+            // The button opens the picker rather than dropping straight into a
+            // random world: choosing the next one is the point of a next run.
+            LobbyManager.open(context.server(), LobbyManager.grid());
+        });
 
         ServerPlayNetworking.registerGlobalReceiver(ConfigUpdatePayload.TYPE, (payload, context) -> {
             ServerPlayer player = context.player();
@@ -100,6 +155,46 @@ public final class SynapticNetworking {
             : Component.literal("Shared inventory OFF — you each keep what you are carrying now, "
                 + "and your inventories will drift apart from here.").withStyle(ChatFormatting.YELLOW);
         server.getPlayerList().broadcastSystemMessage(message, false);
+    }
+
+    /**
+     * Tell anyone playing without the mod what they are missing.
+     * <p>
+     * The tab table, the world picker and the death screen button are all drawn
+     * client side, so on a vanilla client they simply are not there — and
+     * nothing says why. Worth one line each, once.
+     * <p>
+     * Not asked at join: the channels a client can receive are not known that
+     * early, and everybody would be told they were unmodded. A few seconds of
+     * being connected settles it.
+     */
+    public static void checkClients(MinecraftServer server) {
+        List<ServerPlayer> players = server.getPlayerList().getPlayers();
+        Set<UUID> here = new HashSet<>();
+        for (ServerPlayer player : players) here.add(player.getUUID());
+        connectedFor.keySet().retainAll(here);
+        warnedUnmodded.retainAll(here);
+
+        for (ServerPlayer player : players) {
+            UUID id = player.getUUID();
+            int seconds = connectedFor.merge(id, 1, Integer::sum);
+            if (seconds != 5 || warnedUnmodded.contains(id)) continue;
+            if (ServerPlayNetworking.canSend(player, ConfigSyncPayload.TYPE)) continue;
+            warnedUnmodded.add(id);
+            player.sendSystemMessage(Component.literal("Synaptic is not installed on your client. ")
+                .withStyle(ChatFormatting.YELLOW)
+                .append(Component.literal("The session tab, the world picker and the Next run "
+                    + "button will not appear until it is.").withStyle(ChatFormatting.GRAY)));
+        }
+    }
+
+    /** The session table, to everyone at once — it is the same table for all of them. */
+    public static void broadcastStats(MinecraftServer server) {
+        if (server.getPlayerList().getPlayers().isEmpty()) return;
+        StatsSyncPayload payload = SessionStats.snapshot(server);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            ServerPlayNetworking.send(player, payload);
+        }
     }
 
     /** Built per player: the settings are the same for everyone, the permission is not. */

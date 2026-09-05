@@ -12,9 +12,14 @@ import com.synaptic.command.SynapticCommand;
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.SynapticNetworking;
+import com.synaptic.stats.SessionStats;
+import com.synaptic.world.LobbyManager;
+import com.synaptic.world.RunManager;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.ChatFormatting;
@@ -22,6 +27,7 @@ import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
+import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -66,6 +72,7 @@ public final class SynapticMod implements ModInitializer {
     private static int tick;
     private static volatile int playerCount = 1;
     private static boolean cascadingDeath;
+    private static boolean cascadingRespawn;
     private static long serverTick;
     private static boolean sharingAdvancement;
     private static MinecraftServer currentServer;
@@ -90,23 +97,43 @@ public final class SynapticMod implements ModInitializer {
         SynapticConfig.load();
         SynapticNetworking.register();
         SynapticCommand.register();
+        // Which session this world belongs to can only be asked once the save is
+        // open, so it waits for the server rather than happening at load.
+        ServerLifecycleEvents.SERVER_STARTED.register(SessionStats::begin);
+        // The timed save covers a crash; this covers a clean shutdown, where the
+        // last few seconds of the session would otherwise be lost.
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> SessionStats.save());
         ServerTickEvents.END_SERVER_TICK.register(SynapticMod::tick);
         // Queued rather than broadcast right here: the hearts-left figure in the
         // message is only settled once this tick's damage has been merged into the
         // shared bar, which happens at END_SERVER_TICK.
         ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, base, taken, blocked) -> {
-            if (!(entity instanceof ServerPlayer player) || taken <= 0.0F) return;
+            if (taken <= 0.0F) return;
             // The cascade below is bookkeeping, not something that happened to
             // anyone: reporting it would bury the real death under a wall of
-            // "took 1000 damage" lines.
+            // "took 1000 damage" lines, and it would flatter whoever's blow
+            // triggered it with everybody else's health as damage dealt.
             if (cascadingDeath) return;
+            // Counted against any victim, not just players: hitting a zombie is
+            // damage dealt too.
+            if (source.getEntity() instanceof ServerPlayer attacker && attacker != entity) {
+                SessionStats.damageDealt(attacker, taken);
+            }
+            if (!(entity instanceof ServerPlayer player)) return;
+            SessionStats.damageTaken(player, taken);
             pendingDamage.add(new DamageReport(player.getUUID(),
                 player.getGameProfile().name(), taken, describeSource(source)));
         });
         ServerLivingEntityEvents.ALLOW_DAMAGE.register(SynapticMod::allowSharedSourceDamage);
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
-            if (entity instanceof ServerPlayer player) killEveryoneElse(player);
+            if (!(entity instanceof ServerPlayer player)) return;
+            // Counted before the cascade rather than inside it, and only for a
+            // death that was not itself part of one: the whole group dies every
+            // time, so what is worth counting is whose death it was.
+            if (!cascadingDeath) SessionStats.causedDeath(player);
+            killEveryoneElse(player);
         });
+        ServerPlayerEvents.AFTER_RESPAWN.register(SynapticMod::respawnEveryoneElse);
         // A shared pet follows whoever handled it last. Ownership is what the
         // follow goals read, so handing it over is the whole mechanism — and it
         // is why this is a real transfer rather than a temporary loan: switch the
@@ -132,6 +159,28 @@ public final class SynapticMod implements ModInitializer {
         sharedDamageTick.values().removeIf(stamp -> stamp < serverTick - 1);
         allowSoloSleep(server);
         forceKeepInventory(server);
+        LobbyManager.tick(server);
+
+        // Kept above the lobby check, not below it. The session table has to
+        // carry on arriving while the worlds are being looked at, and when this
+        // sat under the early return a lobby that opened with nobody in it took
+        // the tab list down with it.
+        tick++;
+        if (tick % 20 == 0) {
+            SynapticNetworking.broadcastStats(server);
+            SynapticNetworking.checkClients(server);
+        }
+        // Not on the sync timer: writing the file every second would be constant
+        // disk churn for numbers that only matter if the game stops unexpectedly.
+        if (tick % 600 == 0) SessionStats.save();
+
+        // Nobody is playing while the worlds are being looked at, so the shared
+        // pools are left alone rather than being fed a tour's worth of nonsense.
+        if (LobbyManager.isOpen()) return;
+        // A run is a dimension the save does not know about, so anyone who has
+        // just joined is standing in the original overworld instead of with
+        // everybody else.
+        RunManager.placeJoiners(server);
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         playerCount = players.size();
         if (players.isEmpty()) {
@@ -168,7 +217,7 @@ public final class SynapticMod implements ModInitializer {
             lastInventories.put(player.getUUID(), snapshot(player));
         }
 
-        if (++tick % 20 == 0) {
+        if (tick % 20 == 0) {
             for (ServerPlayer player : players) {
                 player.containerMenu.broadcastChanges();
             }
@@ -221,6 +270,48 @@ public final class SynapticMod implements ModInitializer {
             }
         } finally {
             cascadingDeath = false;
+        }
+    }
+
+    /**
+     * One respawn is everyone's respawn. Shared death puts the whole group on the
+     * death screen at the same instant, and vanilla then makes each of them click
+     * their way out of it separately — the last one to notice keeps everybody
+     * else standing around at spawn. Whoever clicks first now clicks for all of
+     * them.
+     * <p>
+     * Done by handing the server the respawn request it would have received from
+     * each of those clients anyway, rather than by respawning them directly:
+     * vanilla's handler owns bookkeeping beyond the respawn itself — swapping the
+     * connection over to the new player object among it — and routing through it
+     * means a forced respawn is indistinguishable from a clicked one. It is also
+     * why this needs nothing on the client: the death screen closes on the
+     * respawn packet that comes back, mod or no mod.
+     *
+     * @param alive true when the player was not actually dead, which is the walk
+     *              back from the End. Nobody else is waiting on a death screen
+     *              for that, so it is left alone.
+     */
+    private static void respawnEveryoneElse(ServerPlayer oldPlayer, ServerPlayer newPlayer, boolean alive) {
+        if (alive || cascadingRespawn || !SynapticConfig.enabled(Feature.RESPAWN)) return;
+        MinecraftServer server = newPlayer.level().getServer();
+        if (server == null) return;
+        cascadingRespawn = true;
+        try {
+            for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
+                // By UUID, because the player who did the clicking is in this list
+                // as a brand new object and the one this event handed us may be
+                // either half of that swap.
+                if (player.getUUID().equals(newPlayer.getUUID())) continue;
+                // Only players actually waiting to come back. Somebody who is up
+                // and walking around has no death screen to be let out of, and
+                // sending this for them would drag them to their spawn point.
+                if (player.isSpectator() || !player.isDeadOrDying()) continue;
+                player.connection.handleClientCommand(new ServerboundClientCommandPacket(
+                    ServerboundClientCommandPacket.Action.PERFORM_RESPAWN));
+            }
+        } finally {
+            cascadingRespawn = false;
         }
     }
 
