@@ -24,17 +24,20 @@ public final class SynapticConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
     private static final String FILE_NAME = "synaptic.properties";
 
-    private static volatile int bits = allEnabled();
+    private static volatile int bits = defaultBits();
     /** Client-side only: what the server said this player may do. */
     private static volatile boolean editable;
 
     private SynapticConfig() {
     }
 
-    private static int allEnabled() {
-        int all = 0;
-        for (Feature feature : Feature.values()) all |= feature.bit();
-        return all;
+    /** What a config that has never been written looks like. */
+    private static int defaultBits() {
+        int defaults = 0;
+        for (Feature feature : Feature.values()) {
+            if (feature.enabledByDefault()) defaults |= feature.bit();
+        }
+        return defaults;
     }
 
     public static boolean enabled(Feature feature) {
@@ -83,7 +86,10 @@ public final class SynapticConfig {
         int loaded = 0;
         for (Feature feature : Feature.values()) {
             String value = properties.getProperty(feature.name().toLowerCase());
-            if (value == null || Boolean.parseBoolean(value)) loaded |= feature.bit();
+            // A key that is not there is a feature added since this file was
+            // written, so it takes its own default rather than being assumed on.
+            boolean on = value == null ? feature.enabledByDefault() : Boolean.parseBoolean(value);
+            if (on) loaded |= feature.bit();
         }
         bits = loaded;
     }
