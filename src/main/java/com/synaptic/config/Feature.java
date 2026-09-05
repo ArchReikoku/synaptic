@@ -15,6 +15,8 @@ public enum Feature {
         "Health, golden hearts, and damage are pooled. Everyone's hearts move together, and a hit on one is a hit on all."),
     DEATH(Group.SHARED, "Death",
         "One death is everyone's death. When any player dies the rest are killed with them — the hardcore rule this mod was built for."),
+    RESPAWN(Group.SHARED, "Respawn",
+        "One respawn is everyone's respawn. Whoever clicks Respawn first brings the whole group back at the same moment, so nobody is left sitting on the death screen waiting."),
     HUNGER(Group.SHARED, "Hunger",
         "Food and saturation are pooled, so the group eats and starves as one."),
     INVENTORY(Group.SHARED, "Inventory",
@@ -40,6 +42,14 @@ public enum Feature {
         "Everyone hears a hurt sound when anyone is hit, however far apart you are."),
     SOLO_SLEEP(Group.EXTRAS, "Solo Sleep",
         "One player in a bed skips the night. Switching this off puts playersSleepingPercentage back to 100."),
+    RUN_RESET(Group.EXTRAS, "Next Run",
+        "Adds a Next Run button to the death screen. Starting a run builds a fresh world with a new seed, drops "
+            + "everyone on the same block facing the same way, wipes inventories and deletes the run you came from — "
+            + "all without anyone disconnecting. Host only."),
+    SESSION_TAB(Group.EXTRAS, "Session Tab",
+        "Replaces the player list with session totals — damage dealt and taken, meals, hunger spent and XP earned "
+            + "— for everyone who has joined, kept across resets. Offline players stay listed, dimmed. Needs the mod "
+            + "on your client."),
     KEEP_MINING_PROGRESS(Group.EXTRAS, "Tool Swap Mining",
         "Mining progress survives a change of held item. Vanilla restarts the break whenever the held stack changes, "
             + "which with a shared inventory means another player picking up items can reset your progress — or stop "

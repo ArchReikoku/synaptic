@@ -57,6 +57,9 @@ tasks.withType(JavaCompile).configureEach {
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(25)
+		// 26, not 25: this machine has no JDK 25 and Gradle will not invent one.
+		// The bytecode target stays 25 via options.release above, so mixin's
+		// JAVA_25 compatibilityLevel is unaffected by compiling on a newer JDK.
+		languageVersion = JavaLanguageVersion.of(26)
 	}
 }
