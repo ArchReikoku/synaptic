@@ -12,59 +12,51 @@ import java.util.List;
  */
 public enum Feature {
     HEALTH(Group.SHARED, "Life",
-        "Health, golden hearts, and damage are pooled. Everyone's hearts move together, and a hit on one is a hit on all."),
+        "Everyone shares one health bar. A hit on one is a hit on all."),
     DEATH(Group.SHARED, "Death",
-        "One death is everyone's death. When any player dies the rest are killed with them — the hardcore rule this mod was built for."),
+        "When one player dies, everyone dies."),
     RESPAWN(Group.SHARED, "Respawn",
-        "One respawn is everyone's respawn. Whoever clicks Respawn first brings the whole group back at the same moment, so nobody is left sitting on the death screen waiting."),
+        "Whoever respawns first brings the whole group back. Stays on while Death is shared."),
     AIR(Group.SHARED, "Air",
-        "Shows everyone the bubbles of whoever is under water, so the whole group can see the diver running out "
-            + "of breath. Nobody else drowns for it — the submerged player takes the damage — but hearts are shared, "
-            + "so the group pays for it either way, once per breath rather than once per swimmer.",
+        "Everyone sees the bubbles of whoever is under water. Only the diver takes the drowning damage.",
         false),
     HUNGER(Group.SHARED, "Hunger",
-        "Food and saturation are pooled, so the group eats and starves as one."),
+        "Everyone shares one hunger bar."),
     INVENTORY(Group.SHARED, "Inventory",
-        "One inventory for everyone, armour and offhand included. Each player still holds their own slot and can use it freely."),
+        "Everyone shares one inventory, armour and offhand included."),
     ENDER_CHEST(Group.SHARED, "Ender Chest",
-        "One ender chest for everyone. A second shared pool of 27 slots, separate from the main inventory."),
+        "Everyone shares one ender chest."),
     EFFECTS(Group.SHARED, "Effects",
-        "A potion effect on anyone applies to everyone, at the strongest level and longest duration going."),
+        "A potion effect on one player applies to everyone, at the strongest level going."),
     EXPERIENCE(Group.SHARED, "Experience",
-        "Levels and XP are pooled. Orbs picked up by one player level the whole group."),
+        "Everyone shares one XP pool. Orbs picked up by one player level the whole group."),
     ADVANCEMENTS(Group.SHARED, "Advancements",
-        "An advancement earned by one player is granted to everyone, including recipe unlocks."),
+        "An advancement earned by one player is granted to everyone."),
     PETS(Group.SHARED, "Pets",
-        "Every tamed animal answers to everyone: sit it down, dye its collar, feed it or armour it as if it were yours. Shared pets never turn on a player, and one that follows will follow whoever handled it last."),
+        "Tamed animals answer to everyone, and never turn on a player."),
     MOB_ANGER(Group.SHARED, "Mob Anger",
-        "Provoke a neutral mob and it turns on the whole group rather than only whoever provoked it — iron golems, bees, wolves, polar bears, endermen, zombified piglins. Only players the mob could already see are drawn in; someone far away is never targeted. Off until it has been played with.",
+        "Provoke a neutral mob and it turns on the whole group, not just you. Only players it can already see.",
         false),
 
-    KEEP_INVENTORY(Group.EXTRAS, "Keep Inventory",
-        "Forces the keepInventory gamerule on while inventories are shared. Without it every player drops a copy of the shared inventory on death, duplicating all of it on the ground."),
     HUNGER_SPLIT(Group.EXTRAS, "Split Hunger",
-        "Each player's exertion costs only 1/N exhaustion, so four people sprinting drain the shared bar at one player's rate. Off means every player drains it at full speed."),
+        "Running and jumping drain the shared bar at one player's rate instead of everyone's."),
     DAMAGE_MESSAGES(Group.EXTRAS, "Damage Chat",
-        "Announce every hit in chat with the damage, what caused it, and the hearts left."),
+        "Announce every hit in chat, with what caused it and the hearts left."),
     DAMAGE_SOUND(Group.EXTRAS, "Damage Sound",
-        "Everyone hears a hurt sound when anyone is hit, however far apart you are."),
+        "Everyone hears it when anyone is hurt, however far apart you are."),
     SOLO_SLEEP(Group.EXTRAS, "Solo Sleep",
-        "One player in a bed skips the night. Switching this off puts playersSleepingPercentage back to 100."),
+        "One player in a bed skips the night."),
     RUN_RESET(Group.EXTRAS, "Next Run",
-        "Adds a Next Run button to the death screen. Starting a run builds a fresh world with a new seed, drops "
-            + "everyone on the same block facing the same way, wipes inventories and deletes the run you came from — "
-            + "all without anyone disconnecting. Host only."),
+        "Adds a Next Run button to the death screen and the pause menu. Starts a fresh world on a new seed "
+            + "without anyone disconnecting. Host only."),
     DEATH_REPORT(Group.EXTRAS, "Death Report",
-        "Replaces the death screen with the run's obituary: whose death ended it and how, and what the session has "
-            + "come to for everyone. Vanilla's buttons move to a row in the corner. Needs the mod on your client."),
+        "Replaces the death screen with the run's report: who died, how, and how everyone did. "
+            + "Needs the mod on your client."),
     SESSION_TAB(Group.EXTRAS, "Session Tab",
-        "Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned, "
-            + "advancements unlocked and deaths caused — for everyone who has joined, kept across resets. Offline "
-            + "players stay listed, dimmed. Needs the mod on your client."),
+        "Replaces the player list with everyone's totals for the session. Needs the mod on your client."),
     KEEP_MINING_PROGRESS(Group.EXTRAS, "Tool Swap Mining",
-        "Mining progress survives a change of held item. Vanilla restarts the break whenever the held stack changes, "
-            + "which with a shared inventory means another player picking up items can reset your progress — or stop "
-            + "you breaking a block at all. Leave this on. Needs the mod on your client.");
+        "Mining carries on when your held item changes. Leave this on — with a shared inventory, another "
+            + "player picking something up can otherwise reset your progress. Needs the mod on your client.");
 
     /** How the settings screen files these. */
     public enum Group {

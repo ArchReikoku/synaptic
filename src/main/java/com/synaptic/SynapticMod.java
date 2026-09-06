@@ -281,7 +281,6 @@ public final class SynapticMod implements ModInitializer {
         serverTick++;
         sharedDamageTick.values().removeIf(stamp -> stamp < serverTick - 1);
         allowSoloSleep(server);
-        forceKeepInventory(server);
         LobbyManager.tick(server);
 
         // Kept above the lobby check, not below it. The session table has to
@@ -436,6 +435,12 @@ public final class SynapticMod implements ModInitializer {
      * vanilla's death path. The rest would sit at zero hearts in a half-dead
      * state, with no death message and nothing dropped. This finishes the job
      * properly for them.
+     * <p>
+     * Only the player whose death it was drops anything. That is what lets
+     * keepInventory stay the server's own setting rather than something this
+     * mod switches on behind your back: with one inventory shared between
+     * everyone, every player dropping means one copy of the group's gear per
+     * player, and the pile grows with the player count.
      */
     private static void killEveryoneElse(ServerPlayer dead) {
         if (cascadingDeath || !SynapticConfig.enabled(Feature.DEATH)) return;
@@ -443,8 +448,19 @@ public final class SynapticMod implements ModInitializer {
         if (server == null) return;
         cascadingDeath = true;
         try {
+            boolean shared = SynapticConfig.enabled(Feature.INVENTORY);
+            boolean keeping = Boolean.TRUE.equals(
+                server.getGameRules().get(GameRules.KEEP_INVENTORY));
             for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
                 if (player == dead || player.isDeadOrDying() || player.isSpectator()) continue;
+                // Emptied before the blow, so nothing of theirs reaches the floor.
+                // What they are carrying is not theirs — it is the group's one
+                // inventory, and the player whose death this was has already
+                // dropped it. Letting the rest drop too would put a copy on the
+                // ground for every player online. Emptying rather than keeping,
+                // because a kept copy would flow straight back into the shared
+                // pool on the next tick and duplicate it that way instead.
+                if (shared && !keeping) player.getInventory().clearContent();
                 player.hurtServer(player.level(), player.damageSources().genericKill(), Float.MAX_VALUE);
             }
         } finally {
@@ -561,13 +577,6 @@ public final class SynapticMod implements ModInitializer {
      * overrule a preference the world may hold for its own reasons, and unlike
      * the on case there is no bug being prevented.
      */
-    private static void forceKeepInventory(MinecraftServer server) {
-        if (!SynapticConfig.enabled(Feature.KEEP_INVENTORY)) return;
-        GameRules rules = server.getGameRules();
-        if (!Boolean.TRUE.equals(rules.get(GameRules.KEEP_INVENTORY))) {
-            rules.set(GameRules.KEEP_INVENTORY, true, server);
-        }
-    }
 
     /** "Steve took 1.5(heart) damage from fall (3.5(heart) left)" for the whole server. */
     /**

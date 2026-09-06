@@ -14,6 +14,7 @@ import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.layouts.GridLayout;
 import net.minecraft.client.gui.layouts.LayoutSettings;
+import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -122,27 +123,40 @@ public final class SynapticSettingsScreen extends Screen {
             List<Feature> features = Feature.of(group);
             rows.addChild(label(Component.literal(group.title())
                 .withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)), COLUMNS, centred());
-            for (int i = 0; i < features.size(); i++) {
-                boolean lonelyLast = i == features.size() - 1 && features.size() % COLUMNS == 1;
-                // A group whose final button would sit alone on its own row is
-                // spanned across instead, rather than hugging the left edge with
-                // a hole beside it.
-                if (lonelyLast) rows.addChild(toggleFor(features.get(i)), COLUMNS, centred());
-                else rows.addChild(toggleFor(features.get(i)), centred());
+            int whole = features.size() - features.size() % COLUMNS;
+            for (int i = 0; i < whole; i++) {
+                rows.addChild(toggleFor(features.get(i)), centred());
+            }
+            // Whatever does not fill a row goes in as one spanning child, so the
+            // last one or two sit centred instead of hugging the first column
+            // with a hole beside them. Written for any remainder rather than for
+            // the counts these groups happen to have today.
+            if (whole < features.size()) {
+                LinearLayout tail = LinearLayout.horizontal().spacing(SPACING);
+                for (int i = whole; i < features.size(); i++) {
+                    tail.addChild(toggleFor(features.get(i)));
+                }
+                rows.addChild(tail, COLUMNS, centred());
             }
         }
 
-        // Set apart from the toggles above: these two commit or discard the lot,
-        // and reading as just another row invites clicking one by accident.
-        LayoutSettings footer = centred().paddingTop(FOOTER_MARGIN);
-        rows.addChild(Button.builder(Component.literal("Done"), button -> {
+        // The pair goes in as ONE child spanning every column, so it always gets
+        // a row to itself. Added as two children they were simply the next two
+        // cells in the same grid: whenever the last group did not happen to fill
+        // its row, Done dropped into the leftover cell beside a toggle and
+        // Cancel started a row of its own underneath. Which of those it looked
+        // like depended on how many features existed — removing one feature was
+        // enough to rearrange the footer.
+        LinearLayout footer = LinearLayout.horizontal().spacing(SPACING);
+        footer.addChild(Button.builder(Component.literal("Done"), button -> {
             if (editable && pending != SynapticConfig.bits()) {
                 ClientPlayNetworking.send(new ConfigUpdatePayload(pending));
             }
             onClose();
-        }).width(BUTTON_WIDTH).build(), footer);
-        rows.addChild(Button.builder(Component.literal("Cancel"), button -> onClose())
-            .width(BUTTON_WIDTH).build(), footer);
+        }).width(BUTTON_WIDTH).build());
+        footer.addChild(Button.builder(Component.literal("Cancel"), button -> onClose())
+            .width(BUTTON_WIDTH).build());
+        rows.addChild(footer, COLUMNS, centred().paddingTop(FOOTER_MARGIN));
 
         grid.arrangeElements();
         grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
