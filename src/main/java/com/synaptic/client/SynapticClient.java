@@ -9,7 +9,6 @@ import com.synaptic.net.WipeReportPayload;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -42,16 +41,19 @@ public final class SynapticClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(CaptureFramePayload.TYPE,
             (payload, context) -> LobbyClient.requestCapture(payload.slot()));
 
-        // Kept for the death screen, which draws its own chat rather than
-        // leaving a hole in itself for the HUD's.
-        ClientReceiveMessageEvents.CHAT.register((message, signed, sender, type, at) ->
-            ChatMirror.record(message));
-        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            // Overlay messages are the action bar, not chat. They would arrive
-            // as a line of their own here and read as something somebody said.
-            if (!overlay) ChatMirror.record(message);
+        // Everything the client holds about a world has to go with the world.
+        // None of it is per-connection state as far as the JVM is concerned, and
+        // carrying it into the next one shows the last world's numbers, the last
+        // world's death, and — worst of the three — the last world's loading
+        // screen over a world that has finished loading.
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            LobbyClient.reset();
+            SessionTable.clear();
+            WipeReport.clear();
+            // Host-only controls are hidden again until the next server says
+            // otherwise, so its answer is never assumed from the last one.
+            SynapticConfig.setEditable(false);
         });
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ChatMirror.clear());
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             // Drives the duck-shoot-restore around each preview capture.

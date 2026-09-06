@@ -138,6 +138,39 @@ public final class LobbyClient {
         }
     }
 
+    /**
+     * Let go of everything when the connection does.
+     * <p>
+     * All of this is static and the client is not restarted between worlds, so a
+     * player who leaves mid-tour keeps {@code TOURING} and comes back to a
+     * loading screen the new server has no idea it is showing: nothing sends the
+     * lobby state to a client that is not being toured, so the bar sits at "3 of
+     * 4" forever over a world that is perfectly playable underneath it.
+     * <p>
+     * The HUD matters as much as the screen. It is hidden for the photographs,
+     * and left hidden it would follow the player into the next world with no way
+     * back short of a keybind they have no reason to press.
+     */
+    public static void reset() {
+        Minecraft minecraft = Minecraft.getInstance();
+        cancelCapture();
+        // Straight back to what the player had, rather than through hideHud:
+        // with the lobby over, the held value is the whole answer.
+        if (heldHideGui != null) {
+            if (minecraft.gui.hud.isHidden() != heldHideGui) minecraft.gui.hud.toggle();
+            heldHideGui = null;
+        }
+        PreviewFrames.clear();
+        state = LobbyStatePayload.CLOSED;
+        captured = 0;
+        slots = 0;
+        mayPick = false;
+        if (minecraft.gui.screen() instanceof SeedGridScreen
+            || minecraft.gui.screen() instanceof TourScreen) {
+            minecraft.setScreenAndShow(null);
+        }
+    }
+
     /** Opened locally the moment Next run is pressed, before the server has answered. */
     public static void showTourScreen(Minecraft minecraft) {
         if (!(minecraft.gui.screen() instanceof TourScreen)) {

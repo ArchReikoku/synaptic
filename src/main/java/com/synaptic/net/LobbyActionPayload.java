@@ -19,6 +19,8 @@ public record LobbyActionPayload(int action, int value) implements CustomPacketP
     public static final int RECYCLE = 1;
     /** Change the grid to the given size and generate that many. */
     public static final int RESIZE = 2;
+    /** Throw the whole lobby away and go back to the run already being played. */
+    public static final int CANCEL = 3;
 
     public static final CustomPacketPayload.Type<LobbyActionPayload> TYPE =
         new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("synaptic", "lobby_action"));

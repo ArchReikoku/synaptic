@@ -1,7 +1,9 @@
 package com.synaptic;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +14,7 @@ import com.synaptic.command.SynapticCommand;
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.SynapticNetworking;
+import com.synaptic.net.WipeReportPayload;
 import com.synaptic.stats.SessionStats;
 import com.synaptic.world.LobbyManager;
 import com.synaptic.world.RunManager;
@@ -63,6 +66,24 @@ public final class SynapticMod implements ModInitializer {
     private static final ItemStack[] sharedInventory = emptyStacks(SHARED_INVENTORY_SLOTS);
     private static final ItemStack[] sharedEnderChest = emptyStacks(ENDER_CHEST_SLOTS);
     private static final List<DamageReport> pendingDamage = new ArrayList<>();
+    /**
+     * The run's last few blows, kept for the death screen.
+     * <p>
+     * Recorded whether or not Damage Chat is switched on: the chat setting is
+     * about what scrolls past while you play, and this is the report. Kept to
+     * the same handful of lines the screen has room for.
+     */
+    private static final Deque<WipeReportPayload.Line> damageLog = new ArrayDeque<>();
+    private static final int DAMAGE_LOG_KEPT = 10;
+    /**
+     * A death waiting to be reported.
+     * <p>
+     * Held rather than sent from the death event, because the blow that killed
+     * is still sitting in {@code pendingDamage} at that moment and does not
+     * reach the log until the reports go out at the end of the tick. Sending
+     * from the event would publish a report missing its own last line.
+     */
+    private static PendingWipe pendingWipe;
     private static float sharedHealth;
     private static int sharedFood;
     private static float sharedSaturation;
@@ -94,6 +115,84 @@ public final class SynapticMod implements ModInitializer {
         initialized = false;
     }
 
+    /**
+     * Kill a player without any of it counting.
+     * <p>
+     * For putting somebody back the way they were found. A player who opened the
+     * lobby from the death screen was dead when it started, and cancelling has
+     * to return them to that — but it is not a new death: it was never undone,
+     * only stepped over so they could be toured. Counting it would credit them a
+     * second death, stop the clock twice, and broadcast an obituary for a death
+     * the group already watched.
+     * <p>
+     * The cascade flag is what buys all of that, since every one of those is
+     * already written to skip a death that happens inside one. It also stops
+     * this kill taking the rest of the group down with it, which matters because
+     * the players being restored are restored one at a time.
+     * <p>
+     * Answers whether the player is now dead, which is not the same as whether
+     * this was allowed to kill them. A player mid-teleport or one whose client
+     * has not finished loading is invulnerable to everything —
+     * {@code ServerPlayer.isInvulnerableTo} checks both before it ever looks at
+     * the damage type, so not even a generic kill gets through — and refuses
+     * silently, by returning false rather than by throwing. The caller is
+     * expected to ask again on a later tick.
+     */
+    public static boolean killSilently(ServerPlayer player) {
+        if (player.isDeadOrDying()) return true;
+        boolean held = cascadingDeath;
+        cascadingDeath = true;
+        try {
+            player.hurtServer(player.level(), player.damageSources().genericKill(), Float.MAX_VALUE);
+        } finally {
+            cascadingDeath = held;
+        }
+        return player.isDeadOrDying();
+    }
+
+    /**
+     * Drop the last world's shared pools before this one starts.
+     * <p>
+     * The pools are static and the client is not restarted between worlds, so
+     * without this the next save opens with the last one's health, hunger and
+     * experience already loaded — and the first tick applies them to whoever is
+     * standing there. The tick does clear itself when the player list empties,
+     * but that relies on a tick happening with nobody on it, which a
+     * single-player shutdown does not promise.
+     * <p>
+     * The cascade flags go too. Either one left set by a shutdown partway
+     * through a group death would suppress the next world's deaths entirely.
+     */
+    public static void begin(MinecraftServer server) {
+        // Read back off disk rather than trusted from memory. The settings are a
+        // static too, and joining a server overwrites them with that server's —
+        // so without this, opening your own world afterwards runs it on the last
+        // server's settings, and changing one thing writes the whole borrowed
+        // set over your own config file.
+        SynapticConfig.load();
+        sharedDamageTick.clear();
+        lastStates.clear();
+        lastInventories.clear();
+        sharedEffects.clear();
+        pendingDamage.clear();
+        damageLog.clear();
+        pendingWipe = null;
+        sharedHealth = 0.0F;
+        sharedFood = 0;
+        sharedSaturation = 0.0F;
+        sharedAbsorption = 0.0F;
+        sharedXpLevel = 0;
+        sharedXpProgress = 0.0F;
+        sharedXpTotal = 0;
+        initialized = false;
+        playerCount = 1;
+        cascadingDeath = false;
+        cascadingRespawn = false;
+        sharingAdvancement = false;
+        serverTick = 0;
+        tick = 0;
+    }
+
     @Override
     public void onInitialize() {
         SynapticConfig.load();
@@ -101,7 +200,18 @@ public final class SynapticMod implements ModInitializer {
         SynapticCommand.register();
         // Which session this world belongs to can only be asked once the save is
         // open, so it waits for the server rather than happening at load.
+        // First of the three: the shared pools must be empty before anything
+        // else looks at them.
+        ServerLifecycleEvents.SERVER_STARTED.register(SynapticMod::begin);
         ServerLifecycleEvents.SERVER_STARTED.register(SessionStats::begin);
+        // Strictly after the stats, which is where the run's dimension is
+        // recorded, and strictly before anyone logs in — rebuilding the run is
+        // what stops a reconnecting player being dumped in the save's own
+        // overworld instead of the world they were playing.
+        ServerLifecycleEvents.SERVER_STARTED.register(RunManager::restore);
+        // Same reason, for the lobby's own leftovers: its candidate lists are
+        // static and outlive the server that filled them.
+        ServerLifecycleEvents.SERVER_STARTED.register(LobbyManager::begin);
         // The timed save covers a crash; this covers a clean shutdown, where the
         // last few seconds of the session would otherwise be lost.
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> SessionStats.save());
@@ -137,10 +247,12 @@ public final class SynapticMod implements ModInitializer {
                 // The survival clock stops here, not when the next run starts:
                 // the time spent staring at the report is not time survived.
                 SessionStats.endRun();
-                // Sent before the cascade, while the combat tracker still
+                // The sentence is taken here, while the combat tracker still
                 // describes the death that actually happened rather than the
-                // generic kill used to finish everybody else off.
-                SynapticNetworking.broadcastWipe(player, source);
+                // generic kill used to finish everybody else off. Publishing
+                // waits for the end of the tick; see PendingWipe.
+                pendingWipe = new PendingWipe(player.getUUID(), player.getGameProfile().name(),
+                    source.getLocalizedDeathMessage(player).getString());
             }
             killEveryoneElse(player);
         });
@@ -198,6 +310,9 @@ public final class SynapticMod implements ModInitializer {
         // just joined is standing in the original overworld instead of with
         // everybody else.
         RunManager.placeJoiners(server);
+        // After placing, and every tick: a death owed to somebody just restored
+        // cannot be delivered on the tick they arrive.
+        RunManager.settleDeaths(server);
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         playerCount = players.size();
         if (players.isEmpty()) {
@@ -223,6 +338,8 @@ public final class SynapticMod implements ModInitializer {
         }
 
         broadcastDamageReports(server);
+        // After the reports, so the blow that ended it is in the log it carries.
+        settleWipe(server);
 
         shareAir(players);
 
@@ -453,11 +570,43 @@ public final class SynapticMod implements ModInitializer {
     }
 
     /** "Steve took 1.5(heart) damage from fall (3.5(heart) left)" for the whole server. */
+    /**
+     * Publish the death once the tick's damage has been written down.
+     * <p>
+     * Saved as well as sent: the report is what the death screen shows, and a
+     * player who leaves and comes back is still looking at the same dead run.
+     * Without it on file they came back to an empty screen — or worse, to
+     * whatever had been said in chat since.
+     */
+    private static void settleWipe(MinecraftServer server) {
+        if (pendingWipe == null) return;
+        WipeReportPayload report = new WipeReportPayload(true, pendingWipe.victim(),
+            pendingWipe.name(), pendingWipe.cause(), List.copyOf(damageLog));
+        pendingWipe = null;
+        SessionStats.setWipe(report);
+        SynapticNetworking.broadcastWipe(server, report);
+    }
+
+    /**
+     * Start a run with nothing to report: no death, and no blows leading up to
+     * one. Called when a run is adopted, so the new run's screen cannot open on
+     * the last run's obituary.
+     */
+    public static void clearWipe(MinecraftServer server) {
+        damageLog.clear();
+        pendingWipe = null;
+        SessionStats.clearWipe();
+        SynapticNetworking.broadcastWipe(server, WipeReportPayload.none());
+    }
+
     private static void broadcastDamageReports(MinecraftServer server) {
         if (pendingDamage.isEmpty()) return;
         boolean announce = SynapticConfig.enabled(Feature.DAMAGE_MESSAGES);
         boolean alert = SynapticConfig.enabled(Feature.DAMAGE_SOUND);
         for (DamageReport report : pendingDamage) {
+            damageLog.addLast(new WipeReportPayload.Line(
+                report.name(), report.damage(), report.cause(), sharedHealth));
+            while (damageLog.size() > DAMAGE_LOG_KEPT) damageLog.removeFirst();
             if (announce) server.getPlayerList().broadcastSystemMessage(Component.literal(report.name())
                 .withStyle(ChatFormatting.YELLOW)
                 .append(Component.literal(" took ").withStyle(ChatFormatting.GRAY))
@@ -812,4 +961,7 @@ public final class SynapticMod implements ModInitializer {
                                int xpLevel, float xpProgress, int xpTotal) {}
     private record InventorySnapshot(ItemStack[] items, ItemStack[] enderChest) {}
     private record DamageReport(UUID victim, String name, float damage, String cause) {}
+
+    /** A death recorded, waiting for the tick to finish before it is published. */
+    private record PendingWipe(UUID victim, String name, String cause) {}
 }

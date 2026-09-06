@@ -56,6 +56,18 @@ public final class SessionTable {
         return count >= 3600 ? (count / 3600) + ":" + body : body;
     }
 
+    /**
+     * Drop the table when the world does, so the tab list cannot show one
+     * world's players and clocks while another is loading.
+     */
+    public static void clear() {
+        rows = List.of();
+        session = 1;
+        run = 0;
+        seconds = 0;
+        total = 0;
+    }
+
     public static void accept(StatsSyncPayload payload) {
         rows = List.copyOf(payload.rows());
         session = payload.session();

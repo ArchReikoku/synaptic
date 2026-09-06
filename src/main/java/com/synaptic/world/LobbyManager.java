@@ -114,6 +114,57 @@ public final class LobbyManager {
     private LobbyManager() {
     }
 
+    /**
+     * Forget everything the last server left behind.
+     * <p>
+     * All of this is static, and a single-player restart does not restart the
+     * game — quitting to the title and opening a world again builds a new server
+     * inside the same process, so every field here survives with it. What does
+     * not survive is the levels: candidates and prepared worlds from the last
+     * server are gone from the new one's map, while the records naming them are
+     * still sitting in these lists.
+     * <p>
+     * A lobby built on those records is the bug it looks like. Every tile names a
+     * dimension the server does not have, so {@code place} finds nothing to move
+     * anybody to and every photograph is taken of whatever world the player was
+     * already standing in — four identical tiles — and {@code pick} finds nothing
+     * to adopt, so the grid stops responding to anything at all.
+     */
+    public static void begin(MinecraftServer server) {
+        candidates.clear();
+        prepared.clear();
+        tours.clear();
+        finished.clear();
+        warned.clear();
+        heldModes.clear();
+        open = false;
+        announced = false;
+        preparedGrid = 0;
+        prepareTick = 0;
+        // Carried across restarts rather than restarted, because the names it
+        // makes outlive the server that made them.
+        batch = SessionStats.batch();
+    }
+
+    /**
+     * Tell a joining client where the lobby stands.
+     * <p>
+     * Sent to everyone rather than only during a lobby, because "there is no
+     * lobby" is the message that matters most: a client that dropped mid-tour
+     * comes back still believing it is being toured, and nothing else on the
+     * server would ever correct it. A player arriving into an open lobby is
+     * caught up by the tick, which walks anybody not already touring.
+     */
+    public static void greet(ServerPlayer player) {
+        if (!SynapticConfig.enabled(Feature.RUN_RESET)) {
+            ServerPlayNetworking.send(player, new LobbyStatePayload(LobbyStatePayload.CLOSED,
+                grid, 0, SessionStats.session(), SessionStats.run() + 1, false));
+            return;
+        }
+        sendState(player.level().getServer(), player,
+            open ? LobbyStatePayload.TOURING : LobbyStatePayload.CLOSED);
+    }
+
     public static boolean isOpen() {
         return open;
     }
@@ -131,7 +182,13 @@ public final class LobbyManager {
      * dimension that has not generated yet arrives inside the void.
      */
     public static void open(MinecraftServer server, int size) {
+        // Taken before anything moves anybody, and only on the way in: recycling
+        // calls this again with everyone already in spectator halfway through a
+        // candidate, and recording that as the place to go back to would strand
+        // them there.
+        boolean reopening = open;
         grid = Math.clamp(size, 1, 3);
+        if (!reopening) rememberHomes(server);
         discard(server);
         // Remembered once, on the way into the first lobby of a run: recycling
         // reopens and would otherwise record the tour's own reduced distance as
@@ -150,10 +207,16 @@ public final class LobbyManager {
         if (preparedGrid == grid && prepared.size() == grid * grid) {
             candidates.addAll(prepared);
             prepared.clear();
+            // Bumped here too, though nothing was built. One of these is about to
+            // become the run and keep its name, and the counter is what stops the
+            // next round of preparing from handing that same name back — which
+            // put the world everybody was standing in into the next grid as a
+            // tile, unpickable, showing the run they had just left.
+            batch = SessionStats.nextBatch();
             LOGGER.info("opened the picker from {} worlds prepared during play", candidates.size());
         } else {
             dropPrepared(server);
-            batch++;
+            batch = SessionStats.nextBatch();
             for (int i = 0; i < grid * grid; i++) {
                 addCandidate(server, i);
             }
@@ -162,6 +225,82 @@ public final class LobbyManager {
         // last one. The tick starts their walks on the next pass.
         finished.clear();
         warned.clear();
+    }
+
+    /**
+     * Write down where everybody is, so the lobby can be undone.
+     * <p>
+     * Only meaningful once there is a run to go back to. The first lobby of a
+     * world opens onto nothing — there is no previous world, and cancelling into
+     * the save's own empty overworld would be worse than not offering it.
+     */
+    private static void rememberHomes(MinecraftServer server) {
+        String run = RunManager.currentRun();
+        if (run == null) return;
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            SessionStats.setHome(player.getUUID(), HomePoint.of(player, run).encode());
+        }
+        // One write for the batch rather than one per player.
+        SessionStats.save();
+    }
+
+    /**
+     * Whether there is anywhere to go back to, which is what makes cancelling
+     * something worth offering.
+     */
+    public static boolean cancellable() {
+        return open && RunManager.currentRun() != null;
+    }
+
+    /**
+     * Abandon the lobby and put everyone back where it found them.
+     * <p>
+     * The counterpart to picking. A lobby is entered by choice and until now
+     * could only be left by choosing, which made a glance at the next few worlds
+     * a commitment to leaving the current one — press it by accident and the
+     * only way out was to throw the run away.
+     * <p>
+     * The candidates are destroyed exactly as picking destroys the ones it did
+     * not want; the difference is that nothing is adopted and the run that was
+     * already being played is never touched.
+     */
+    public static void cancel(MinecraftServer server) {
+        if (!open) return;
+        ServerLevel level = RunManager.currentLevel(server);
+        if (RunManager.currentRun() == null) {
+            server.getPlayerList().broadcastSystemMessage(Component.literal(
+                "There is no run to go back to yet.").withStyle(ChatFormatting.RED), false);
+            return;
+        }
+
+        open = false;
+        announced = false;
+        tours.clear();
+        finished.clear();
+        warned.clear();
+        server.getPlayerList().setViewDistance(heldViewDistance);
+
+        // Everybody out before the worlds go: destroying a level with a player
+        // still in it is what the fallback argument exists to prevent, and here
+        // the fallback is the run they are about to be returned to anyway.
+        for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
+            RunManager.sendHome(server, player);
+            sendState(server, player, LobbyStatePayload.CLOSED);
+        }
+        heldModes.clear();
+
+        for (Candidate candidate : List.copyOf(candidates)) {
+            RuntimeDimension.destroy(server, candidate.name(), level);
+        }
+        candidates.clear();
+        // The prepared queue is kept: those worlds were built for a lobby that
+        // has not happened yet, and the next one will still want them.
+
+        server.getPlayerList().broadcastSystemMessage(Component.literal("New run cancelled")
+            .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)
+            .append(Component.literal(" — back to ").withStyle(ChatFormatting.GRAY))
+            .append(Component.literal(RunManager.label(SessionStats.session(), SessionStats.run()))
+                .withStyle(ChatFormatting.WHITE)), false);
     }
 
     /**
@@ -195,7 +334,7 @@ public final class LobbyManager {
             RuntimeDimension.destroy(server, candidate.name(), fallback);
         }
         prepared.clear();
-        batch++;
+        batch = SessionStats.nextBatch();
     }
 
     /**
@@ -221,6 +360,15 @@ public final class LobbyManager {
         for (int attempt = 0; attempt < SEED_ATTEMPTS; attempt++) {
             long seed = WorldOptions.randomSeed();
             String name = base + (attempt == 0 ? "" : "_r" + attempt);
+            // A name the server already has a level for is never a candidate.
+            // Creating one hands back the existing world and ignores the seed
+            // entirely, so a collision does not fail — it quietly offers a world
+            // already in use, and the run everybody is playing is the one most
+            // likely to be sitting under the name.
+            if (server.getLevel(RuntimeDimension.key(name)) != null) {
+                LOGGER.warn("candidate name {} is already a live dimension, skipping it", name);
+                continue;
+            }
             ServerLevel level = RuntimeDimension.create(server, name, seed);
             BlockPos spawn = RuntimeDimension.findSpawn(level);
             if (spawn != null || attempt == SEED_ATTEMPTS - 1) {
@@ -363,6 +511,10 @@ public final class LobbyManager {
     }
 
     private static void place(MinecraftServer server, ServerPlayer player, int slot) {
+        // A batch can come up short — every name for a tile already taken, or a
+        // seed that would not yield a spawn — and parking at slot 0 with nothing
+        // in the list would throw inside the tick rather than simply do nothing.
+        if (slot < 0 || slot >= candidates.size()) return;
         Candidate candidate = candidates.get(slot);
         ServerLevel level = server.getLevel(RuntimeDimension.key(candidate.name()));
         if (level == null) return;

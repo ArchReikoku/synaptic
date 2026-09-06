@@ -21,6 +21,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.Relative;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.levelgen.WorldOptions;
 import net.minecraft.world.level.Level;
@@ -50,6 +51,17 @@ public final class RunManager {
     private static long currentSeed;
     /** Who has already been dropped into the current run since the server started. */
     private static final Set<UUID> placed = new HashSet<>();
+    /**
+     * Players owed a death that could not be delivered yet.
+     * <p>
+     * Killing cannot be done on the tick a player is put back, because the two
+     * things that make somebody restorable are exactly the two things that make
+     * them invulnerable: they have just teleported across dimensions, and their
+     * client has only just connected. Both are checked ahead of the damage type,
+     * so the kill is refused outright and refused quietly. So it is asked for
+     * again every tick until it lands.
+     */
+    private static final Set<UUID> pendingDeath = new HashSet<>();
 
     private RunManager() {
     }
@@ -128,6 +140,18 @@ public final class RunManager {
         }
         currentRun = name;
         currentSeed = seed;
+        // Written to the session file so a restart can find its way back here.
+        // A run is a dimension the save's own list knows nothing about, so
+        // without this record there is nothing to rebuild it from.
+        SessionStats.setRunDimension(name, seed);
+        // Nowhere left to go back to: the run those positions were recorded in
+        // is about to be deleted, and a stale one would teleport a later joiner
+        // into a world that no longer exists.
+        SessionStats.clearHomes();
+        // A fresh run has nobody dead in it and no blows behind it. Said out
+        // loud to every client, so the last run's obituary leaves their screens
+        // rather than waiting to be overwritten by the next death.
+        SynapticMod.clearWipe(server);
         // Built now rather than when somebody first lights a portal. Making a
         // level costs almost nothing until its chunks are asked for, and adding
         // one to the server's map from inside a block tick means editing the
@@ -154,6 +178,52 @@ public final class RunManager {
     /** Which run everyone is currently in, or null before the first one is started. */
     public static String currentRun() {
         return currentRun;
+    }
+
+    /**
+     * Rebuild the run in progress after a restart.
+     * <p>
+     * A run is built while the server is up and never enters the save's own
+     * dimension list, so a restart comes back knowing nothing about it: the
+     * levels are gone from the server's map, and every player whose last known
+     * dimension was one of them is dropped into the save's original overworld
+     * instead — the empty world left over from before the first run was chosen.
+     * That is the whole bug. Rebuilding the levels here, before anybody logs in,
+     * lets the game's own by-dimension placement put everyone back exactly where
+     * they logged out.
+     * <p>
+     * The name and seed come from the session file rather than being worked out,
+     * because they cannot be: a run adopted from the lobby keeps the candidate's
+     * name, and a run rebuilt on a different seed would grow its next chunks
+     * from a different world than the ones already on disk.
+     * <p>
+     * Called on SERVER_STARTED after the stats have loaded, which is the last
+     * moment before players are let in.
+     */
+    public static void restore(MinecraftServer server) {
+        // Static, so it survives a single-player restart along with everything
+        // else here: quitting to the title and reopening a world builds a new
+        // server in the same process. Left alone, everybody still counts as
+        // already placed and nobody would be moved into the run at all.
+        placed.clear();
+        pendingDeath.clear();
+        currentRun = null;
+        currentSeed = 0;
+
+        String name = SessionStats.runName();
+        if (name == null) return;
+        long seed = SessionStats.runSeed();
+
+        RuntimeDimension.create(server, name, seed);
+        // The companions come back too, and eagerly. Placement at login goes by
+        // the dimension the player logged out in, so anyone who quit in the
+        // run's nether or end needs it to exist by now or they land in the
+        // overworld with the rest of the bug.
+        RuntimeDimension.create(server, name + "_nether", seed, LevelStem.NETHER);
+        RuntimeDimension.create(server, name + "_end", seed, LevelStem.END);
+
+        currentRun = name;
+        currentSeed = seed;
     }
 
     /**
@@ -275,10 +345,90 @@ public final class RunManager {
 
         for (ServerPlayer player : List.copyOf(players)) {
             if (!placed.add(player.getUUID())) continue;
+            // Somebody who left mid-lobby is owed their own spot back, not the
+            // run's spawn — and owed it whether or not they are standing in the
+            // original overworld, because a tour leaves them in spectator and
+            // that has to be undone wherever they landed.
+            if (SessionStats.home(player.getUUID()) != null) {
+                sendHome(server, player);
+                continue;
+            }
             if (player.level() != server.overworld()) continue;
             BlockPos spawn = RuntimeDimension.spawn(level);
             RuntimeDimension.send(player, level, spawn, START_YAW);
             pointRespawnAt(player, level, spawn);
+        }
+    }
+
+    /**
+     * Put one player back where the lobby found them, and forget the record.
+     * <p>
+     * Falls back to the run's spawn when there is nothing written down — a
+     * player who joined during the lobby has no earlier position in this run to
+     * be returned to, and the spawn is the honest answer for them.
+     * <p>
+     * The game mode is the part that actually bit: a tour puts everyone in
+     * spectator, and a player who logged out during one came back a ghost with
+     * nothing left on the server that remembered they had been alive.
+     */
+    public static void sendHome(MinecraftServer server, ServerPlayer player) {
+        UUID id = player.getUUID();
+        ServerLevel level = currentLevel(server);
+        HomePoint home = HomePoint.decode(SessionStats.home(id));
+
+        if (home == null) {
+            SessionStats.clearHome(id);
+            BlockPos spawn = RuntimeDimension.spawn(level);
+            RuntimeDimension.send(player, level, spawn, START_YAW);
+            pointRespawnAt(player, level, spawn);
+            restoreMode(player, null);
+            return;
+        }
+
+        ServerLevel target = server.getLevel(RuntimeDimension.key(home.dimension()));
+        if (target == null) target = level;
+        // Ahead of the move rather than after it: spectator passes through
+        // whatever it lands in, and a survival player dropped into terrain that
+        // has not finished loading is a survival player falling through it.
+        if (player.gameMode() != home.mode()) player.setGameMode(home.mode());
+        player.teleportTo(target, home.x(), home.y(), home.z(),
+            Set.<Relative>of(), home.yaw(), home.pitch(), true);
+        pointRespawnAt(player, target, BlockPos.containing(home.x(), home.y(), home.z()));
+
+        // The run was already over for them when the lobby opened, so putting
+        // them back means putting them back on the report they were reading.
+        // Queued rather than done here: nothing can hurt them this tick.
+        if (home.dead()) {
+            pendingDeath.add(id);
+            // The record stays until the death actually lands, so a player who
+            // leaves again in the gap is still owed it when they return.
+            return;
+        }
+        SessionStats.clearHome(id);
+    }
+
+    /**
+     * Deliver the deaths owed to players who were dead when the lobby took them.
+     * <p>
+     * Retried every tick because the refusal is temporary and silent: the player
+     * is invulnerable while the dimension change finishes and while their client
+     * is still loading, and asking during either simply does nothing. Once it
+     * lands the record is dropped and they are looking at the death screen they
+     * left, with the run's own report still on it.
+     */
+    public static void settleDeaths(MinecraftServer server) {
+        if (pendingDeath.isEmpty()) return;
+        for (UUID id : List.copyOf(pendingDeath)) {
+            ServerPlayer player = server.getPlayerList().getPlayer(id);
+            // Gone again before it could be delivered. The home is still on
+            // file, so their next arrival picks this up from the start.
+            if (player == null) {
+                pendingDeath.remove(id);
+                continue;
+            }
+            if (!SynapticMod.killSilently(player)) continue;
+            pendingDeath.remove(id);
+            SessionStats.clearHome(id);
         }
     }
 
