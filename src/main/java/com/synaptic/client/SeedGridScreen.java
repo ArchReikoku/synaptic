@@ -123,6 +123,14 @@ public final class SeedGridScreen extends Screen {
         x -= this.font.width(size) + 6;
         graphics.text(this.font, size, x, top + 6, changed ? FACE : DIM, false);
 
+        // Only where there is a run behind this lobby. The first of a world has
+        // nothing to go back to, and offering the way out would be a lie.
+        if (cancellable()) {
+            String cancel = "[C] keep current run";
+            x -= this.font.width(cancel) + 10;
+            graphics.text(this.font, cancel, x, top + 6, DIM, false);
+        }
+
         String rest = "[1-" + Math.max(1, LobbyClient.slots()) + "] pick    [R] new worlds    [↑ ↓]";
         x -= this.font.width(rest) + 10;
         graphics.text(this.font, rest, x, top + 6, DIM, false);
@@ -140,6 +148,13 @@ public final class SeedGridScreen extends Screen {
         switch (key) {
             case GLFW.GLFW_KEY_R -> {
                 send(LobbyActionPayload.RECYCLE, 0);
+                return true;
+            }
+            // Out of the lobby without choosing anything, back to the run that
+            // was interrupted. Deliberately its own key rather than Escape:
+            // Escape is pressed by reflex, and this ends the picking.
+            case GLFW.GLFW_KEY_C -> {
+                if (cancellable()) send(LobbyActionPayload.CANCEL, 0);
                 return true;
             }
             // The arrows only move the number in the corner. Changing the grid
@@ -161,6 +176,17 @@ public final class SeedGridScreen extends Screen {
                 return super.keyPressed(event);
             }
         }
+    }
+
+    /**
+     * Whether there is a run underneath this lobby to go back to.
+     * <p>
+     * Read off the run number the server sent, which counts the run this lobby
+     * would start: the first lobby of a world is choosing run one, and nothing
+     * came before it.
+     */
+    private static boolean cancellable() {
+        return LobbyClient.run() > 1;
     }
 
     private static void send(int action, int value) {

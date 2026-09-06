@@ -3,7 +3,6 @@ package com.synaptic.mixin;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.synaptic.client.ChatMirror;
 import com.synaptic.client.LobbyClient;
 import com.synaptic.client.PlayerHeads;
 import com.synaptic.client.Ratings;
@@ -412,17 +411,19 @@ public abstract class DeathScreenMixin extends Screen {
     }
 
     /**
-     * The last few things said, drawn into the report.
+     * The blows that ended the run, drawn into the report.
      * <p>
-     * A copy rather than the real chat: the HUD draws that behind every screen,
-     * so the only ways to show it are to leave a hole in the backdrop or to
-     * repaint it here. Repainting puts it where it belongs — centred under the
-     * table, in the report's own width — and the lines keep the colours they had,
-     * so the damage that ended the run still reads in red.
+     * The report's own record, not a copy of chat. Chat carried whatever had
+     * been said — other players talking, the join hint — and carried nothing at
+     * all for anyone who had just reconnected, because the copy lived on their
+     * client and left with them. These come from the server with the run.
+     * <p>
+     * A run that ended without damage behind it — killed by a command, or by
+     * anything that leaves no blow — has no lines, and then no panel is drawn.
      */
     @Unique
     private void synaptic$drawChat(GuiGraphicsExtractor graphics, Font font, int top) {
-        List<Component> lines = ChatMirror.lines();
+        List<Component> lines = WipeReport.lines();
         if (lines.isEmpty()) return;
 
         int width = 0;

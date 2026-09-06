@@ -21,7 +21,6 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.server.permissions.Permissions;
 
 /**
@@ -64,6 +63,7 @@ public final class SynapticNetworking {
                 case LobbyActionPayload.PICK -> LobbyManager.pick(server, payload.value());
                 case LobbyActionPayload.RECYCLE -> LobbyManager.recycle(server);
                 case LobbyActionPayload.RESIZE -> LobbyManager.resize(server, payload.value());
+                case LobbyActionPayload.CANCEL -> LobbyManager.cancel(server);
                 default -> { }
             }
         });
@@ -99,6 +99,16 @@ public final class SynapticNetworking {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayer player = handler.player;
             ServerPlayNetworking.send(player, syncFor(player));
+            // Before anything else it might show: a client that left during a
+            // lobby still has the loading screen up and will keep it there until
+            // something says otherwise.
+            LobbyManager.greet(player);
+            // The death screen's whole content, restated for a client that has
+            // just arrived with nothing in it. A player who leaves a dead run
+            // and comes back is looking at the same dead run.
+            if (ServerPlayNetworking.canSend(player, WipeReportPayload.TYPE)) {
+                ServerPlayNetworking.send(player, SessionStats.wipe());
+            }
             // Everyone gets the hint, not just whoever can change things: the
             // screen is worth opening to read what the world is running under.
             player.sendSystemMessage(Component.literal("Press ")
@@ -194,15 +204,15 @@ public final class SynapticNetworking {
      * Tell everyone whose death ended the run, in the words the game itself
      * would have used for it.
      */
-    public static void broadcastWipe(ServerPlayer victim, DamageSource source) {
-        MinecraftServer server = victim.level().getServer();
-        if (server == null) return;
-        // Asked of the blow rather than of the combat tracker. The tracker is
-        // rechecked partway through dying and by the time this runs it has
-        // often forgotten, which is how a fall came out as "Cyaboi_ died".
-        WipeReportPayload report = new WipeReportPayload(victim.getUUID(),
-            victim.getGameProfile().name(),
-            source.getLocalizedDeathMessage(victim).getString());
+    /**
+     * Send the run's obituary to everyone who can render it.
+     * <p>
+     * Takes the finished report rather than a death, because it is assembled at
+     * the end of the tick once the blow that killed is in the log — and because
+     * the same call publishes "there is nothing to report" at the start of a new
+     * run, which is what clears the last one off every screen.
+     */
+    public static void broadcastWipe(MinecraftServer server, WipeReportPayload report) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (ServerPlayNetworking.canSend(player, WipeReportPayload.TYPE)) {
                 ServerPlayNetworking.send(player, report);
