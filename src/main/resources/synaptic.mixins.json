@@ -8,6 +8,7 @@
     "PlayerAdvancementsMixin",
     "TamableAnimalMixin",
     "MobMixin",
+    "NeutralMobMixin",
     "MinecraftServerAccessor",
     "PrimaryLevelDataAccessor",
     "ServerLevelSeedMixin",

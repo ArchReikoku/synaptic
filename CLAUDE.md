@@ -50,6 +50,30 @@ declares `org.gradle.plugin.api-version` 9.5.0. Gradle 9.6 removed
 before reading a single source file; Gradle 8.x is rejected by Loom's variant metadata. The
 wrapper is pinned to 9.5.0 for exactly that window.
 
+## Versioning
+
+Semantic versioning, `MAJOR.MINOR.PATCH`, set by `mod_version` in `gradle.properties`.
+
+- **PATCH** — `1.2.3` to `1.2.4`. A bugfix, nothing new. The poison-damage fix was one.
+- **MINOR** — `1.2.3` to `1.3.0`. A feature added, nothing existing broken. Shared pets,
+  shared mob anger.
+- **MAJOR** — `1.2.3` to `2.0.0`. Existing worlds or setups need attention: a Minecraft
+  version jump, a change to the config file's format, or a feature whose meaning changed
+  under players who were relying on the old behaviour.
+
+**A bump resets everything to its right.** `1.2.3` plus a feature is `1.3.0`, not `1.3.3`;
+plus a breaking change it is `2.0.0`, not `2.2.3`. Without that the numbers stop carrying
+information.
+
+**Bump once per release, not once per commit.** The version marks a jar someone could
+install, so five commits shipping together are one bump. Documentation-only changes are not
+a release at all.
+
+**Any change to the `Feature` enum is a MINOR bump at least, and jars must never be mixed
+across one.** Settings travel between client and server as a bitmask of enum ordinals, so a
+jar whose `Feature` order differs reads the other side's settings as nonsense. The config
+file is keyed by name and survives reordering; the wire format does not.
+
 ## Things that bit us before
 
 - **26.2 renamed a lot.** `GuiGraphics`, `Minecraft.setScreen`, and `hasPermissions(int)`

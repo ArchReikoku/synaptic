@@ -36,6 +36,9 @@ public enum Feature {
         "An advancement earned by one player is granted to everyone, including recipe unlocks."),
     PETS(Group.SHARED, "Pets",
         "Every tamed animal answers to everyone: sit it down, dye its collar, feed it or armour it as if it were yours. Shared pets never turn on a player, and one that follows will follow whoever handled it last."),
+    MOB_ANGER(Group.SHARED, "Mob Anger",
+        "Provoke a neutral mob and it turns on the whole group rather than only whoever provoked it — iron golems, bees, wolves, polar bears, endermen, zombified piglins. Only players the mob could already see are drawn in; someone far away is never targeted. Off until it has been played with.",
+        false),
 
     KEEP_INVENTORY(Group.EXTRAS, "Keep Inventory",
         "Forces the keepInventory gamerule on while inventories are shared. Without it every player drops a copy of the shared inventory on death, duplicating all of it on the ground."),
@@ -82,28 +85,17 @@ public enum Feature {
     private final Group group;
     private final String label;
     private final String description;
-    private final boolean defaultOn;
+    private final boolean enabledByDefault;
 
     Feature(Group group, String label, String description) {
         this(group, label, description, true);
     }
 
-    Feature(Group group, String label, String description, boolean defaultOn) {
+    Feature(Group group, String label, String description, boolean enabledByDefault) {
         this.group = group;
         this.label = label;
         this.description = description;
-        this.defaultOn = defaultOn;
-    }
-
-    /**
-     * Whether a world that has never been told otherwise runs with this on.
-     * <p>
-     * Almost everything is on: the mod is the sharing, and a fresh install
-     * should be the whole thing rather than a menu to go and switch on. The
-     * exceptions are the ones that surprise rather than share.
-     */
-    public boolean defaultOn() {
-        return defaultOn;
+        this.enabledByDefault = enabledByDefault;
     }
 
     public Group group() {
@@ -118,6 +110,14 @@ public enum Feature {
     /** The longer explanation shown on hover. */
     public String description() {
         return description;
+    }
+
+    /**
+     * Whether a fresh config switches this on. Everything is on unless it has a
+     * reason not to be — an untested feature is the reason here.
+     */
+    public boolean enabledByDefault() {
+        return enabledByDefault;
     }
 
     public int bit() {

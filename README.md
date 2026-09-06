@@ -24,6 +24,7 @@ banking your own supplies while someone else starves.
 | **Experience** | Levels and XP are pooled. Orbs picked up by one player level the whole group. |
 | **Advancements** | An advancement earned by one player is granted to everyone, including recipe unlocks. |
 | **Pets** | Every tamed animal answers to everyone. Shared pets never turn on a player, and one that follows will follow whoever handled it last. |
+| **Mob Anger** | Provoke a neutral mob and it turns on the whole group, not just whoever provoked it. Only players it could already see are drawn in — someone far away is never targeted. |
 
 ## Extras
 
