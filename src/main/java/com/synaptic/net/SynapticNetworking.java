@@ -21,6 +21,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.server.permissions.Permissions;
 
 /**
@@ -38,6 +39,7 @@ public final class SynapticNetworking {
     public static void register() {
         PayloadTypeRegistry.clientboundPlay().register(ConfigSyncPayload.TYPE, ConfigSyncPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(StatsSyncPayload.TYPE, StatsSyncPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(WipeReportPayload.TYPE, WipeReportPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConfigUpdatePayload.TYPE, ConfigUpdatePayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(NextRunPayload.TYPE, NextRunPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(LobbyActionPayload.TYPE, LobbyActionPayload.CODEC);
@@ -185,6 +187,26 @@ public final class SynapticNetworking {
                 .withStyle(ChatFormatting.YELLOW)
                 .append(Component.literal("The session tab, the world picker and the Next run "
                     + "button will not appear until it is.").withStyle(ChatFormatting.GRAY)));
+        }
+    }
+
+    /**
+     * Tell everyone whose death ended the run, in the words the game itself
+     * would have used for it.
+     */
+    public static void broadcastWipe(ServerPlayer victim, DamageSource source) {
+        MinecraftServer server = victim.level().getServer();
+        if (server == null) return;
+        // Asked of the blow rather than of the combat tracker. The tracker is
+        // rechecked partway through dying and by the time this runs it has
+        // often forgotten, which is how a fall came out as "Cyaboi_ died".
+        WipeReportPayload report = new WipeReportPayload(victim.getUUID(),
+            victim.getGameProfile().name(),
+            source.getLocalizedDeathMessage(victim).getString());
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (ServerPlayNetworking.canSend(player, WipeReportPayload.TYPE)) {
+                ServerPlayNetworking.send(player, report);
+            }
         }
     }
 

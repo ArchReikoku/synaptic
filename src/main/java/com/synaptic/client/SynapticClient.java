@@ -5,10 +5,13 @@ import com.synaptic.net.CaptureFramePayload;
 import com.synaptic.net.ConfigSyncPayload;
 import com.synaptic.net.LobbyStatePayload;
 import com.synaptic.net.StatsSyncPayload;
+import com.synaptic.net.WipeReportPayload;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.KeyMapping;
 import org.lwjgl.glfw.GLFW;
@@ -30,11 +33,25 @@ public final class SynapticClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(StatsSyncPayload.TYPE,
             (payload, context) -> SessionTable.accept(payload));
 
+        ClientPlayNetworking.registerGlobalReceiver(WipeReportPayload.TYPE,
+            (payload, context) -> WipeReport.accept(payload));
+
         ClientPlayNetworking.registerGlobalReceiver(LobbyStatePayload.TYPE,
             (payload, context) -> LobbyClient.accept(payload));
 
         ClientPlayNetworking.registerGlobalReceiver(CaptureFramePayload.TYPE,
             (payload, context) -> LobbyClient.requestCapture(payload.slot()));
+
+        // Kept for the death screen, which draws its own chat rather than
+        // leaving a hole in itself for the HUD's.
+        ClientReceiveMessageEvents.CHAT.register((message, signed, sender, type, at) ->
+            ChatMirror.record(message));
+        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+            // Overlay messages are the action bar, not chat. They would arrive
+            // as a line of their own here and read as something somebody said.
+            if (!overlay) ChatMirror.record(message);
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ChatMirror.clear());
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             // Drives the duck-shoot-restore around each preview capture.

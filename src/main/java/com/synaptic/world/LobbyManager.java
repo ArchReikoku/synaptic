@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.random.RandomGenerator;
 
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
@@ -26,6 +25,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.levelgen.WorldOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +62,17 @@ public final class LobbyManager {
      */
     private static final int ACK_TIMEOUT = 400;
     private static final float VIEW_YAW = 0.0F;
+    /** How many seeds to try for one tile before settling for whatever came last. */
+    private static final int SEED_ATTEMPTS = 8;
+    /**
+     * Ticks between building one candidate ahead of time.
+     * <p>
+     * Building a world costs a noticeable pause, so they are made one at a time
+     * with a gap between: spread over a run, a full grid is ready long before
+     * anybody asks for it, and the cost is a hitch every few seconds rather than
+     * ten seconds of frozen server the moment somebody presses the button.
+     */
+    private static final int PREPARE_INTERVAL = 100;
 
     private record Candidate(String name, long seed, BlockPos spawn) {}
 
@@ -86,6 +97,19 @@ public final class LobbyManager {
     private static int heldViewDistance = 10;
     /** Bumped per batch so candidate names are never reused. */
     private static int batch;
+    /** Whether the screens are already up for a lobby that has not been built yet. */
+    private static boolean announced;
+    /**
+     * Worlds built during play, waiting for the next lobby to want them.
+     * <p>
+     * The whole reason a reset can be quick: generating nine worlds takes as
+     * long as it takes, so it happens while the last run is still being played
+     * rather than while everybody sits watching a progress bar. Borrowed from
+     * SeedQueue, which keeps a queue of ready worlds for exactly this reason.
+     */
+    private static final List<Candidate> prepared = new ArrayList<>();
+    private static int preparedGrid;
+    private static int prepareTick;
 
     private LobbyManager() {
     }
@@ -116,23 +140,97 @@ public final class LobbyManager {
         open = true;
         server.getPlayerList().setViewDistance(Math.min(heldViewDistance, TOUR_VIEW_DISTANCE));
 
-        RandomGenerator random = RandomGenerator.getDefault();
         // Every batch gets names of its own. The chosen candidate keeps its name
         // as the run, so reusing "candidate_3" next time round handed the lobby
         // back the world everybody was already standing in — one tile of the new
         // grid was the current run, and picking anything else would have deleted
         // it out from under them.
-        batch++;
-        for (int i = 0; i < grid * grid; i++) {
-            long seed = random.nextLong();
-            String name = "candidate_" + batch + "_" + i;
-            ServerLevel level = RuntimeDimension.create(server, name, seed);
-            candidates.add(new Candidate(name, seed, RuntimeDimension.spawn(level)));
+        // Straight off the queue when there is a full set of the right size
+        // waiting, which is the point of building them during play.
+        if (preparedGrid == grid && prepared.size() == grid * grid) {
+            candidates.addAll(prepared);
+            prepared.clear();
+            LOGGER.info("opened the picker from {} worlds prepared during play", candidates.size());
+        } else {
+            dropPrepared(server);
+            batch++;
+            for (int i = 0; i < grid * grid; i++) {
+                addCandidate(server, i);
+            }
         }
         // Nobody has seen this batch, including anyone who was looking at the
         // last one. The tick starts their walks on the next pass.
         finished.clear();
         warned.clear();
+    }
+
+    /**
+     * Build one world ahead of time, if there is room and a reason.
+     * <p>
+     * Only while a run is actually being played: during a lobby the server has
+     * enough to do, and before the first run there is nothing to hide the cost
+     * behind. A grid's worth accumulates over a few minutes of play and is then
+     * handed over whole the moment somebody wants the next run.
+     */
+    public static void prepare(MinecraftServer server) {
+        if (!SynapticConfig.enabled(Feature.RUN_RESET)) return;
+        if (open || RunManager.currentRun() == null) return;
+        if (++prepareTick % PREPARE_INTERVAL != 0) return;
+
+        // A grid resized since these were made is a queue for the wrong shape.
+        if (preparedGrid != grid) dropPrepared(server);
+        if (prepared.size() >= grid * grid) return;
+
+        preparedGrid = grid;
+        int slot = prepared.size();
+        Candidate candidate = buildCandidate(server, "prep_" + batch + "_" + slot);
+        if (candidate != null) prepared.add(candidate);
+    }
+
+    /** Throw away worlds queued for a grid nobody is going to ask for. */
+    private static void dropPrepared(MinecraftServer server) {
+        if (prepared.isEmpty()) return;
+        ServerLevel fallback = RunManager.currentLevel(server);
+        for (Candidate candidate : List.copyOf(prepared)) {
+            RuntimeDimension.destroy(server, candidate.name(), fallback);
+        }
+        prepared.clear();
+        batch++;
+    }
+
+    /**
+     * Roll seeds for one tile until one of them has dry land to stand on.
+     * <p>
+     * A world whose origin is open ocean is not a world anybody wants to be
+     * handed, so it is thrown away and another seed tried rather than dropped
+     * into the sea — which is what the old fallback did, and why runs still
+     * started in the water.
+     * <p>
+     * Each rejected world is deleted before the next is built, so a run of bad
+     * luck does not leave a pile of abandoned oceans in the save. If every
+     * attempt is wet the last is taken anyway: a soggy start beats a lobby with
+     * a hole in it.
+     */
+    private static void addCandidate(MinecraftServer server, int slot) {
+        Candidate candidate = buildCandidate(server, "candidate_" + batch + "_" + slot);
+        if (candidate != null) candidates.add(candidate);
+    }
+
+    private static Candidate buildCandidate(MinecraftServer server, String base) {
+        ServerLevel fallback = RunManager.currentLevel(server);
+        for (int attempt = 0; attempt < SEED_ATTEMPTS; attempt++) {
+            long seed = WorldOptions.randomSeed();
+            String name = base + (attempt == 0 ? "" : "_r" + attempt);
+            ServerLevel level = RuntimeDimension.create(server, name, seed);
+            BlockPos spawn = RuntimeDimension.findSpawn(level);
+            if (spawn != null || attempt == SEED_ATTEMPTS - 1) {
+                return new Candidate(name, seed,
+                    spawn != null ? spawn : RuntimeDimension.spawn(level));
+            }
+            LOGGER.info("seed {} is all water near the origin, trying another", seed);
+            RuntimeDimension.destroy(server, name, fallback);
+        }
+        return null;
     }
 
     private static void beginTour(MinecraftServer server, ServerPlayer player) {
@@ -167,6 +265,16 @@ public final class LobbyManager {
         // A session nobody has chosen a world for yet starts at the picker
         // rather than in whatever seed the save was made with.
         if (!open && SessionStats.run() == 0) {
+            // Two passes on purpose. Building the candidates blocks the server
+            // for seconds, so the screens go up on this tick and the generating
+            // happens on the next — otherwise the host stares at whatever world
+            // they spawned into, then gets yanked through four of them with no
+            // explanation.
+            if (!announced) {
+                announced = true;
+                broadcast(server, LobbyStatePayload.TOURING);
+                return;
+            }
             LOGGER.info("opening the seed lobby for session {}", SessionStats.session());
             open(server, grid);
             return;
@@ -288,6 +396,7 @@ public final class LobbyManager {
         if (level == null) return;
 
         open = false;
+        announced = false;
         tours.clear();
         finished.clear();
         // The run itself is played at whatever distance the player chose.

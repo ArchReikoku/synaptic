@@ -2,6 +2,7 @@ package com.synaptic.mixin;
 
 import java.util.List;
 
+import com.synaptic.client.Ratings;
 import com.synaptic.client.SessionTable;
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
@@ -32,17 +33,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * on everyone's screen — it becomes how you find your own row rather than the
  * name being the only handle.
  * <p>
- * Drawn after vanilla's own list and anchored to the bottom, so both are
- * readable at once. Everyone who has joined the session appears, whether or not
+ * Drawn instead of vanilla's list and in its place. Everyone who has joined appears, whether or not
  * they are here now — an absent player's totals are still part of the run — with
  * the offline ones dimmed and their faces greyed.
  */
 @Mixin(PlayerTabOverlay.class)
 public abstract class PlayerTabOverlayMixin {
-    /** "wipes": deaths of this player's that took the whole group down with them. */
+    /** "deaths": deaths of this player's that took the whole group down with them. */
     @Unique
     private static final String[] SYNAPTIC$LABELS =
-        {"dealt", "taken", "food", "hunger", "xp", "deaths"};
+        {"dealt", "taken", "food", "hunger", "xp", "unlocks", "deaths", "score"};
 
     @Unique
     private static final int SYNAPTIC$PAD = 8;
@@ -52,11 +52,14 @@ public abstract class PlayerTabOverlayMixin {
     private static final int SYNAPTIC$FACE = 14;
     @Unique
     private static final int SYNAPTIC$ACCENT_WIDTH = 3;
+    /** Room for the placing, wide enough for two digits. */
+    @Unique
+    private static final int SYNAPTIC$RANK_WIDTH = 14;
     @Unique
     private static final int SYNAPTIC$COLUMN_GAP = 14;
-    /** Clears the hotbar, the health row and the experience bar beneath it. */
+    /** Vanilla's list starts here, and this takes its place. */
     @Unique
-    private static final int SYNAPTIC$BOTTOM_MARGIN = 46;
+    private static final int SYNAPTIC$TOP_MARGIN = 10;
 
     @Unique
     private static final int SYNAPTIC$BACKDROP = 0xE00B0B0F;
@@ -91,7 +94,7 @@ public abstract class PlayerTabOverlayMixin {
         0xFFC792EA, 0xFF64D8CB, 0xFFFF8AC4, 0xFF9AA7FF
     };
 
-    @Inject(method = "extractRenderState", at = @At("TAIL"))
+    @Inject(method = "extractRenderState", at = @At("HEAD"), cancellable = true)
     private void synaptic$drawSessionTable(GuiGraphicsExtractor graphics, int width,
                                            Scoreboard scoreboard, Objective objective,
                                            CallbackInfo ci) {
@@ -104,16 +107,23 @@ public abstract class PlayerTabOverlayMixin {
         Font font = minecraft.font;
         if (font == null) return;
 
-        String[][] values = new String[rows.size()][];
-        for (int i = 0; i < rows.size(); i++) {
-            StatsSyncPayload.Row row = rows.get(i);
+        // Ordered by score rather than by who joined first: a table with a
+        // placing in it that is not sorted by that placing is a puzzle.
+        // The run, never the world total: the tab is what you glance at mid-run
+        // to see how this attempt is going.
+        List<Ratings.Ranked> ranked = Ratings.rank(rows, StatsSyncPayload.Row::run);
+        String[][] values = new String[ranked.size()][];
+        for (int i = 0; i < ranked.size(); i++) {
+            StatsSyncPayload.Tally tally = ranked.get(i).tally();
             values[i] = new String[] {
-                synaptic$hearts(row.dealt()),
-                synaptic$hearts(row.taken()),
-                String.valueOf(row.food()),
-                String.valueOf(Math.round(row.hunger())),
-                synaptic$count(row.xp()),
-                String.valueOf(row.deaths())
+                synaptic$hearts(tally.dealt()),
+                synaptic$hearts(tally.taken()),
+                String.valueOf(tally.food()),
+                String.valueOf(Math.round(tally.hunger())),
+                synaptic$count(tally.xp()),
+                String.valueOf(tally.unlocks()),
+                String.valueOf(tally.deaths()),
+                String.valueOf(ranked.get(i).score())
             };
         }
 
@@ -126,46 +136,69 @@ public abstract class PlayerTabOverlayMixin {
         }
 
         int nameWidth = 0;
-        for (StatsSyncPayload.Row row : rows) nameWidth = Math.max(nameWidth, font.width(row.name()));
+        for (Ratings.Ranked entry : ranked) {
+            nameWidth = Math.max(nameWidth, font.width(entry.row().name()));
+        }
         int figuresWidth = 0;
         for (int column : columns) figuresWidth += column + SYNAPTIC$COLUMN_GAP;
 
-        int contentWidth = SYNAPTIC$ACCENT_WIDTH + SYNAPTIC$PAD + SYNAPTIC$FACE + SYNAPTIC$PAD
-            + nameWidth + SYNAPTIC$COLUMN_GAP + figuresWidth;
-        String title = "Session " + SessionTable.session();
-        String subtitle = rows.size() + (rows.size() == 1 ? " player" : " players");
-        int headerWidth = SYNAPTIC$PAD * 3 + font.width(title) + font.width(subtitle);
-        int tableWidth = Math.max(contentWidth + SYNAPTIC$PAD, headerWidth);
+        int contentWidth = SYNAPTIC$ACCENT_WIDTH + SYNAPTIC$PAD + SYNAPTIC$RANK_WIDTH
+            + SYNAPTIC$FACE + SYNAPTIC$PAD + nameWidth + SYNAPTIC$COLUMN_GAP + figuresWidth;
+        // "World" rather than "session": a session is our word for the thing a
+        // save is, and nobody sitting down to play needs to learn it. The run
+        // number rides behind it in grey as the attempt count.
+        String title = "World " + SessionTable.session();
+        // Said out loud, because the figures underneath reset with every run and
+        // a table that quietly zeroed itself would look broken.
+        String scope = "this run";
+        String attempt = "#" + SessionTable.run();
+        // Both clocks: how long this try has lasted, and how long the world has
+        // taken across every try. The second answers "where did the evening go",
+        // and the runs it counts have long since been deleted.
+        String subtitle = SessionTable.clock() + " try  ·  " + SessionTable.totalClock()
+            + " total  ·  " + rows.size() + (rows.size() == 1 ? " player" : " players");
+        int headerWidth = SYNAPTIC$PAD * 5 + font.width(title) + font.width(attempt)
+            + font.width(scope) + font.width(subtitle);
+        // Capped at the screen: eight columns and a long name will otherwise
+        // run off both edges at a large GUI scale.
+        int tableWidth = Math.min(Math.max(contentWidth + SYNAPTIC$PAD, headerWidth), width - 8);
 
         int headerHeight = 15;
         int tableHeight = headerHeight + SYNAPTIC$ROW * rows.size() + 3;
         int left = (width - tableWidth) / 2;
-        // Grows upward from the bottom, so adding a player pushes the table away
-        // from the hotbar rather than down into it.
-        int top = Math.max(2, graphics.guiHeight() - SYNAPTIC$BOTTOM_MARGIN - tableHeight);
+        // Where vanilla's own list sat, because this replaces it rather than
+        // joining it — two lists on one screen is one more than anybody needs.
+        int top = SYNAPTIC$TOP_MARGIN;
         int right = left + tableWidth;
         int bottom = top + tableHeight;
 
         graphics.fill(left, top, right, bottom, SYNAPTIC$BACKDROP);
         graphics.fill(left, top, right, top + headerHeight, SYNAPTIC$HEADER);
         graphics.text(font, title, left + SYNAPTIC$PAD, top + 4, SYNAPTIC$TITLE_TEXT, false);
+        graphics.text(font, attempt, left + SYNAPTIC$PAD + font.width(title) + 5, top + 4,
+            SYNAPTIC$SUBTITLE_TEXT, false);
+        graphics.text(font, scope,
+            left + SYNAPTIC$PAD + font.width(title) + 5 + font.width(attempt) + 6, top + 4,
+            SYNAPTIC$LABEL_TEXT, false);
         graphics.text(font, subtitle, right - SYNAPTIC$PAD - font.width(subtitle), top + 4,
             SYNAPTIC$SUBTITLE_TEXT, false);
         graphics.fill(left, top + headerHeight, right, top + headerHeight + 1, SYNAPTIC$EDGE);
 
         int y = top + headerHeight + 2;
-        for (int i = 0; i < rows.size(); i++) {
-            synaptic$drawPlayer(graphics, font, minecraft, rows.get(i), values[i], columns,
+        for (int i = 0; i < ranked.size(); i++) {
+            synaptic$drawPlayer(graphics, font, minecraft, ranked.get(i), values[i], columns,
                 left, y, right, i);
             y += SYNAPTIC$ROW;
         }
         synaptic$outline(graphics, left, top, right, bottom);
+        ci.cancel();
     }
 
     @Unique
     private void synaptic$drawPlayer(GuiGraphicsExtractor graphics, Font font, Minecraft minecraft,
-                                     StatsSyncPayload.Row row, String[] values, int[] columns,
+                                     Ratings.Ranked entry, String[] values, int[] columns,
                                      int left, int y, int right, int index) {
+        StatsSyncPayload.Row row = entry.row();
         boolean self = minecraft.player != null && minecraft.player.getUUID().equals(row.id());
         if (self) graphics.fill(left, y, right, y + SYNAPTIC$ROW, SYNAPTIC$SELF_ROW);
         else if (index % 2 == 1) graphics.fill(left, y, right, y + SYNAPTIC$ROW, SYNAPTIC$STRIPE);
@@ -175,6 +208,13 @@ public abstract class PlayerTabOverlayMixin {
         graphics.fill(left, y, left + SYNAPTIC$ACCENT_WIDTH, y + SYNAPTIC$ROW, accent);
 
         int x = left + SYNAPTIC$ACCENT_WIDTH + SYNAPTIC$PAD;
+        // Gold, silver and bronze carry themselves; everyone else is a number in
+        // the same grey as the labels, which is the point of a placing.
+        String place = String.valueOf(entry.rank());
+        graphics.text(font, place, x + SYNAPTIC$RANK_WIDTH - 4 - font.width(place),
+            y + (SYNAPTIC$ROW - 8) / 2, Ratings.colour(entry.rank()), false);
+        x += SYNAPTIC$RANK_WIDTH;
+
         int faceTop = y + (SYNAPTIC$ROW - SYNAPTIC$FACE) / 2;
         synaptic$drawFace(graphics, minecraft, row, x, faceTop);
         x += SYNAPTIC$FACE + SYNAPTIC$PAD;

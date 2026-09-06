@@ -39,8 +39,11 @@ import net.minecraft.network.chat.Component;
  * re-checks permission regardless of what this screen allows.
  */
 public final class SynapticSettingsScreen extends Screen {
-    private static final int COLUMNS = 2;
-    private static final int BUTTON_WIDTH = 140;
+    // Three columns, not two. Twenty toggles down a two-column grid runs off
+    // the bottom of the screen at any normal GUI scale, and the footer buttons
+    // with it — which is how a feature that is in this list reads as missing.
+    private static final int COLUMNS = 3;
+    private static final int BUTTON_WIDTH = 106;
     private static final int SPACING = 6;
     private static final int FOOTER_MARGIN = 10;
 
@@ -120,10 +123,11 @@ public final class SynapticSettingsScreen extends Screen {
             rows.addChild(label(Component.literal(group.title())
                 .withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)), COLUMNS, centred());
             for (int i = 0; i < features.size(); i++) {
-                boolean lastAndOdd = i == features.size() - 1 && features.size() % COLUMNS != 0;
-                // An odd group's final button spans both columns rather than
-                // sitting in the left one with a hole beside it.
-                if (lastAndOdd) rows.addChild(toggleFor(features.get(i)), COLUMNS, centred());
+                boolean lonelyLast = i == features.size() - 1 && features.size() % COLUMNS == 1;
+                // A group whose final button would sit alone on its own row is
+                // spanned across instead, rather than hugging the left edge with
+                // a hole beside it.
+                if (lonelyLast) rows.addChild(toggleFor(features.get(i)), COLUMNS, centred());
                 else rows.addChild(toggleFor(features.get(i)), centred());
             }
         }
