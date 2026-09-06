@@ -17,6 +17,11 @@ public enum Feature {
         "One death is everyone's death. When any player dies the rest are killed with them — the hardcore rule this mod was built for."),
     RESPAWN(Group.SHARED, "Respawn",
         "One respawn is everyone's respawn. Whoever clicks Respawn first brings the whole group back at the same moment, so nobody is left sitting on the death screen waiting."),
+    AIR(Group.SHARED, "Air",
+        "Shows everyone the bubbles of whoever is under water, so the whole group can see the diver running out "
+            + "of breath. Nobody else drowns for it — the submerged player takes the damage — but hearts are shared, "
+            + "so the group pays for it either way, once per breath rather than once per swimmer.",
+        false),
     HUNGER(Group.SHARED, "Hunger",
         "Food and saturation are pooled, so the group eats and starves as one."),
     INVENTORY(Group.SHARED, "Inventory",
@@ -49,10 +54,13 @@ public enum Feature {
         "Adds a Next Run button to the death screen. Starting a run builds a fresh world with a new seed, drops "
             + "everyone on the same block facing the same way, wipes inventories and deletes the run you came from — "
             + "all without anyone disconnecting. Host only."),
+    DEATH_REPORT(Group.EXTRAS, "Death Report",
+        "Replaces the death screen with the run's obituary: whose death ended it and how, and what the session has "
+            + "come to for everyone. Vanilla's buttons move to a row in the corner. Needs the mod on your client."),
     SESSION_TAB(Group.EXTRAS, "Session Tab",
-        "Replaces the player list with session totals — damage dealt and taken, meals, hunger spent and XP earned "
-            + "— for everyone who has joined, kept across resets. Offline players stay listed, dimmed. Needs the mod "
-            + "on your client."),
+        "Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned, "
+            + "advancements unlocked and deaths caused — for everyone who has joined, kept across resets. Offline "
+            + "players stay listed, dimmed. Needs the mod on your client."),
     KEEP_MINING_PROGRESS(Group.EXTRAS, "Tool Swap Mining",
         "Mining progress survives a change of held item. Vanilla restarts the break whenever the held stack changes, "
             + "which with a shared inventory means another player picking up items can reset your progress — or stop "

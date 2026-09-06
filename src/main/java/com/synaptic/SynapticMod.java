@@ -51,9 +51,11 @@ public final class SynapticMod implements ModInitializer {
     /**
      * Damage types every player suffers at the same instant because the thing
      * causing them is shared: poison and instant harming arrive as "magic", the
-     * wither effect as "wither", and an empty shared hunger bar as "starve".
+     * wither effect as "wither", an empty shared hunger bar as "starve", and an
+     * empty shared air bar as "drown" — two players holding the same breath run
+     * out at the same instant, so the group pays for it once.
      */
-    private static final Set<String> SHARED_CAUSE_DAMAGE = Set.of("magic", "wither", "starve");
+    private static final Set<String> SHARED_CAUSE_DAMAGE = Set.of("magic", "wither", "starve", "drown");
     private static final Map<String, Long> sharedDamageTick = new HashMap<>();
     private static final Map<UUID, PlayerState> lastStates = new HashMap<>();
     private static final Map<UUID, InventorySnapshot> lastInventories = new HashMap<>();
@@ -130,7 +132,16 @@ public final class SynapticMod implements ModInitializer {
             // Counted before the cascade rather than inside it, and only for a
             // death that was not itself part of one: the whole group dies every
             // time, so what is worth counting is whose death it was.
-            if (!cascadingDeath) SessionStats.causedDeath(player);
+            if (!cascadingDeath) {
+                SessionStats.causedDeath(player);
+                // The survival clock stops here, not when the next run starts:
+                // the time spent staring at the report is not time survived.
+                SessionStats.endRun();
+                // Sent before the cascade, while the combat tracker still
+                // describes the death that actually happened rather than the
+                // generic kill used to finish everybody else off.
+                SynapticNetworking.broadcastWipe(player, source);
+            }
             killEveryoneElse(player);
         });
         ServerPlayerEvents.AFTER_RESPAWN.register(SynapticMod::respawnEveryoneElse);
@@ -177,6 +188,12 @@ public final class SynapticMod implements ModInitializer {
         // Nobody is playing while the worlds are being looked at, so the shared
         // pools are left alone rather than being fed a tour's worth of nonsense.
         if (LobbyManager.isOpen()) return;
+        // Worlds for the next reset are built while this one is being played,
+        // so pressing the button does not start a wait.
+        LobbyManager.prepare(server);
+        // The clock runs on the run, not on the server: time spent picking a
+        // world is not time spent playing it.
+        if (tick % 20 == 0 && RunManager.currentRun() != null) SessionStats.tickClock();
         // A run is a dimension the save does not know about, so anyone who has
         // just joined is standing in the original overworld instead of with
         // everybody else.
@@ -206,6 +223,8 @@ public final class SynapticMod implements ModInitializer {
         }
 
         broadcastDamageReports(server);
+
+        shareAir(players);
 
         lastStates.clear();
         lastInventories.clear();
@@ -249,6 +268,49 @@ public final class SynapticMod implements ModInitializer {
         if (alreadyPaid != null && alreadyPaid == serverTick) return false;
         sharedDamageTick.put(signature, serverTick);
         return true;
+    }
+
+    /**
+     * Everyone watches the bubbles of whoever is under water.
+     * <p>
+     * The lowest air of anyone submerged is mirrored onto everyone who is not,
+     * so a player standing on the shore sees the diver running out of breath.
+     * Anyone dry is regenerating every tick anyway and simply has that
+     * overwritten, so being shown somebody else's empty bar costs them nothing.
+     * <p>
+     * Divers are never written to, only read from. Vanilla does not drown a
+     * player at zero air: it carries on counting down to -20 and deals the
+     * damage at that exact value. An earlier version wrote the shared figure
+     * onto everybody, which reset that countdown every tick and left a player
+     * sitting at no bubbles under water taking nothing at all, indefinitely.
+     * <p>
+     * The drowning itself stays vanilla's, which only hurts a player whose eyes
+     * are actually under. The group still pays for it: "drown" is a shared cause
+     * (see SHARED_CAUSE_DAMAGE), so it comes off the pooled bar once per breath
+     * rather than once per swimmer.
+     * <p>
+     * Nobody under water means nobody is holding their breath, and the write
+     * stops — vanilla then refills everyone at the same rate, together.
+     */
+    private static void shareAir(List<ServerPlayer> players) {
+        if (!SynapticConfig.enabled(Feature.AIR)) return;
+        int lowest = Integer.MAX_VALUE;
+        for (ServerPlayer player : players) {
+            if (player.isUnderWater()) lowest = Math.min(lowest, player.getAirSupply());
+        }
+        if (lowest == Integer.MAX_VALUE) return;
+        // Shown at zero rather than at the sentinel below it, which is bookkeeping
+        // and not a number anybody should be shown.
+        int shown = Math.max(0, lowest);
+        for (ServerPlayer player : players) {
+            // Anyone actually under water is left entirely alone. Vanilla does not
+            // drown a player at zero air — it keeps counting down to -20, and that
+            // exact value is what deals the damage. Writing their bar back to zero
+            // each tick reset that countdown before it ever arrived, which is how a
+            // player sat at no bubbles under water indefinitely and took nothing.
+            if (player.isUnderWater()) continue;
+            if (player.getAirSupply() != shown) player.setAirSupply(shown);
+        }
     }
 
     /**
@@ -324,6 +386,26 @@ public final class SynapticMod implements ModInitializer {
      * inside itself, once per player, which without it recurses until the stack
      * gives out.
      */
+    /**
+     * Count an advancement against whoever actually finished it.
+     * <p>
+     * Called before the sharing pass and refused during one, so the credit lands
+     * on the player who did the work rather than on everyone it is handed to.
+     * Only advancements with something to show for them count: recipe unlocks go
+     * through the same machinery in their hundreds, and counting those would
+     * drown the figure they are meant to sit beside.
+     */
+    public static void advancementEarned(ServerPlayer player, AdvancementHolder advancement) {
+        if (sharingAdvancement || player == null) return;
+        if (advancement.value().display().isEmpty()) return;
+        if (!player.getAdvancements().getOrStartProgress(advancement).isDone()) return;
+        // Counted once for the world, not once per player. Somebody joining an
+        // hour in starts with none of them and will work through the whole tree
+        // on their own; paying them for ground the group already covered would
+        // put a latecomer top of the table by morning.
+        SessionStats.advancementEarned(player, advancement.id().toString());
+    }
+
     public static void shareAdvancement(AdvancementHolder advancement, String criterion) {
         if (sharingAdvancement || currentServer == null
             || !SynapticConfig.enabled(Feature.ADVANCEMENTS)) {

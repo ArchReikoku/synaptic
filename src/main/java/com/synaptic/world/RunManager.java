@@ -6,13 +6,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.random.RandomGenerator;
 
 import com.synaptic.SynapticMod;
+import com.synaptic.mixin.MinecraftServerAccessor;
+import com.synaptic.mixin.PrimaryLevelDataAccessor;
 import com.synaptic.stats.SessionStats;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.server.MinecraftServer;
@@ -20,7 +22,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.levelgen.WorldOptions;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.dimension.LevelStem;
+import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.storage.LevelData;
+import net.minecraft.world.level.storage.PrimaryLevelData;
 
 /**
  * Runs: one world after another inside a single save, without anybody leaving.
@@ -39,6 +46,8 @@ public final class RunManager {
     private static final float START_YAW = 0.0F;
 
     private static String currentRun;
+    /** The run's seed, so its nether and end can be built from the same one. */
+    private static long currentSeed;
     /** Who has already been dropped into the current run since the server started. */
     private static final Set<UUID> placed = new HashSet<>();
 
@@ -118,8 +127,16 @@ public final class RunManager {
             pointRespawnAt(player, level, spawn);
         }
         currentRun = name;
+        currentSeed = seed;
+        // Built now rather than when somebody first lights a portal. Making a
+        // level costs almost nothing until its chunks are asked for, and adding
+        // one to the server's map from inside a block tick means editing the
+        // collection the server is in the middle of ticking.
+        RuntimeDimension.create(server, name + "_nether", seed, LevelStem.NETHER);
+        RuntimeDimension.create(server, name + "_end", seed, LevelStem.END);
+        renameSave(server, session, run);
 
-        if (leaving != null) RuntimeDimension.destroy(server, leaving, level);
+        if (leaving != null) destroyRun(server, leaving, level);
         // The shared pools still hold the last run's numbers; a fresh start has
         // to be re-seeded from the players actually standing here.
         SynapticMod.reseed();
@@ -131,12 +148,84 @@ public final class RunManager {
     }
 
     public static void startNextRun(MinecraftServer server) {
-        startNextRun(server, RandomGenerator.getDefault().nextLong());
+        startNextRun(server, WorldOptions.randomSeed());
     }
 
     /** Which run everyone is currently in, or null before the first one is started. */
     public static String currentRun() {
         return currentRun;
+    }
+
+    /**
+     * The run's own nether or end, built the first time somebody goes looking.
+     * <p>
+     * Without these every run shares the save's originals, so a dragon killed in
+     * one run is still dead in the next and a nether stripped bare stays
+     * stripped. They are made on demand rather than up front because most runs
+     * end long before anyone lights a portal, and generating two more worlds for
+     * every reset would cost seconds nobody asked for.
+     * <p>
+     * Both are built from the run's own seed, the way one seed makes all three
+     * dimensions of an ordinary world.
+     */
+    public static ServerLevel companion(MinecraftServer server, ResourceKey<Level> asked) {
+        if (currentRun == null) return null;
+        if (asked == Level.OVERWORLD) return currentLevel(server);
+
+        ResourceKey<LevelStem> flavour;
+        String suffix;
+        if (asked == Level.NETHER) {
+            flavour = LevelStem.NETHER;
+            suffix = "_nether";
+        } else if (asked == Level.END) {
+            flavour = LevelStem.END;
+            suffix = "_end";
+        } else {
+            return null;
+        }
+        return RuntimeDimension.create(server, currentRun + suffix, currentSeed, flavour);
+    }
+
+    /**
+     * What this level would be called in an ordinary world.
+     * <p>
+     * A portal works out which way you are going by comparing the dimension you
+     * are standing in against {@code NETHER} or {@code END}. A run's are named
+     * for the run, so every one of those comparisons is false and every portal
+     * concludes you are on your way in — which is how walking into the end's
+     * exit portal put people back on the obsidian platform they arrived on.
+     * <p>
+     * Answering with the name vanilla expects lets its own logic run correctly,
+     * and the destination it then asks for is redirected back to the run.
+     */
+    public static ResourceKey<Level> canonical(Level level) {
+        ResourceKey<Level> here = level.dimension();
+        if (currentRun == null) return here;
+        if (here.equals(RuntimeDimension.key(currentRun))) return Level.OVERWORLD;
+        if (here.equals(RuntimeDimension.key(currentRun + "_nether"))) return Level.NETHER;
+        if (here.equals(RuntimeDimension.key(currentRun + "_end"))) return Level.END;
+        return here;
+    }
+
+    /**
+     * Whether a portal may be lit here.
+     * <p>
+     * Vanilla asks this of the dimension by name and only accepts its own two.
+     * A run and the nether belonging to it stand in for those; a run's end does
+     * not, for the same reason the real end does not.
+     */
+    public static boolean allowsPortals(Level level) {
+        if (currentRun == null) return false;
+        ResourceKey<Level> here = level.dimension();
+        return here.equals(RuntimeDimension.key(currentRun))
+            || here.equals(RuntimeDimension.key(currentRun + "_nether"));
+    }
+
+    /** Take a run down along with the nether and end that belonged to it. */
+    public static void destroyRun(MinecraftServer server, String name, ServerLevel fallback) {
+        RuntimeDimension.destroy(server, name + "_nether", fallback);
+        RuntimeDimension.destroy(server, name + "_end", fallback);
+        RuntimeDimension.destroy(server, name, fallback);
     }
 
     /**
@@ -191,6 +280,31 @@ public final class RunManager {
             RuntimeDimension.send(player, level, spawn, START_YAW);
             pointRespawnAt(player, level, spawn);
         }
+    }
+
+    /**
+     * Name the save after the world and the try, so a folder full of runs does
+     * not read as a folder full of "New World".
+     * <p>
+     * The name in the world list lives in the save's settings, which are held
+     * privately and normally only changed from the menu with the world closed.
+     * The whole record is swapped for one carrying the new name, because that is
+     * what gets written on the next save — setting it anywhere else is undone by
+     * the first autosave. The folder on disk keeps whatever name it was created
+     * with: its files are open and locked, and renaming a directory out from
+     * under a running server is a good way to lose one.
+     */
+    private static void renameSave(MinecraftServer server, int session, int run) {
+        if (!(server.getWorldData() instanceof PrimaryLevelData data)) return;
+        PrimaryLevelDataAccessor access = (PrimaryLevelDataAccessor) data;
+        LevelSettings settings = access.synaptic$settings();
+        String wanted = label(session, run);
+        if (wanted.equals(settings.levelName())) return;
+        access.synaptic$setSettings(new LevelSettings(wanted, settings.gameType(),
+            settings.difficultySettings(), settings.allowCommands(), settings.dataConfiguration()));
+        // Written now rather than at the next autosave, so quitting straight
+        // after a reset still leaves the right name in the list.
+        ((MinecraftServerAccessor) server).synaptic$storageSource().saveDataTag(data);
     }
 
     /** Dying returns you to this run's start, not to the save's original overworld. */

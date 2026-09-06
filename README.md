@@ -16,6 +16,7 @@ banking your own supplies while someone else starves.
 | **Life** | Health, golden hearts and damage are pooled. Everyone's hearts move together, and a hit on one is a hit on all. |
 | **Death** | One death is everyone's death. When any player dies the rest are killed with them. |
 | **Respawn** | One respawn is everyone's respawn. Whoever clicks Respawn first brings the whole group back at the same moment, so nobody is left sitting on the death screen. |
+| **Air** | Shows everyone the bubbles of whoever is under water, so the group can watch the diver run out of breath. Only the submerged player drowns — but hearts are shared, so the group pays for it, once per breath rather than once per swimmer. Off by default. |
 | **Hunger** | Food and saturation are pooled, so the group eats and starves as one. |
 | **Inventory** | One inventory for everyone, armour and offhand included. Each player still holds their own slot and can use it freely. |
 | **Ender Chest** | A second shared pool of 27 slots, separate from the main inventory. |
@@ -35,7 +36,8 @@ banking your own supplies while someone else starves.
 | **Damage Sound** | Everyone hears a hurt sound when anyone is hit, however far apart you are. |
 | **Solo Sleep** | One player in a bed skips the night. |
 | **Next Run** | A Next Run button on the death screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, wipes inventories and deletes the run you came from — without anyone disconnecting. Host only. |
-| **Session Tab** | Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned — for everyone who has joined. Kept across world resets; offline players stay listed, dimmed. |
+| **Death Report** | Replaces the death screen with the run's obituary: whose death ended it and how, and the session totals for everyone. Vanilla's buttons move to a row in the corner. |
+| **Session Tab** | Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned, advancements unlocked and deaths caused — for everyone who has joined. Kept across world resets; offline players stay listed, dimmed. |
 | **Tool Swap Mining** | Mining progress survives a change of held item — see the note below. |
 
 Every one of these can be switched off individually.

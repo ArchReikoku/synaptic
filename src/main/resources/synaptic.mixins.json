@@ -10,15 +10,19 @@
     "MobMixin",
     "NeutralMobMixin",
     "MinecraftServerAccessor",
+    "PrimaryLevelDataAccessor",
     "ServerLevelSeedMixin",
     "PlayerStatsMixin",
-    "LivingEntityEatMixin"
+    "LivingEntityEatMixin",
+    "PortalDestinationMixin",
+    "BaseFireBlockMixin"
   ],
   "client": [
     "MultiPlayerGameModeMixin",
     "PlayerTabOverlayMixin",
     "HudTabListMixin",
-    "DeathScreenMixin"
+    "DeathScreenMixin",
+    "PauseScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

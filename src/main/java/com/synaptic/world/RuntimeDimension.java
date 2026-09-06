@@ -1,6 +1,7 @@
 package com.synaptic.world;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -16,9 +17,11 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.PlayerSpawnFinder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Relative;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -42,6 +45,8 @@ import org.slf4j.LoggerFactory;
  */
 public final class RuntimeDimension {
     private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
+    /** How far out to look for dry land before giving up, in chunks. */
+    private static final int SPAWN_SEARCH_CHUNKS = 6;
     /** Read by ServerLevelSeedMixin during the level constructor. See there. */
     private static volatile Long pending;
 
@@ -66,6 +71,19 @@ public final class RuntimeDimension {
      * dimension. Only the seed is meant to differ.
      */
     public static ServerLevel create(MinecraftServer server, String name, long seed) {
+        return create(server, name, seed, LevelStem.OVERWORLD);
+    }
+
+    /**
+     * Build a level of the given flavour with its own seed.
+     * <p>
+     * The stem is the game's own recipe for a dimension — its type and its
+     * generator — so asking for the nether's gives a real nether and the end's a
+     * real end. Only the seed differs from the save's own, which is what makes
+     * these a run's rather than a copy of it.
+     */
+    public static ServerLevel create(MinecraftServer server, String name, long seed,
+                                     ResourceKey<LevelStem> flavour) {
         MinecraftServerAccessor access = (MinecraftServerAccessor) server;
         ResourceKey<Level> key = key(name);
         ServerLevel existing = access.synaptic$levels().get(key);
@@ -73,7 +91,7 @@ public final class RuntimeDimension {
 
         LevelStem overworldStem = server.registryAccess()
             .lookupOrThrow(Registries.LEVEL_STEM)
-            .getValueOrThrow(LevelStem.OVERWORLD);
+            .getValueOrThrow(flavour);
 
         // Derived rather than its own: time, weather and the rest stay the
         // server's business, which is what a run wants anyway.
@@ -107,14 +125,63 @@ public final class RuntimeDimension {
     }
 
     /**
-     * The one spot everybody starts from. Generated on demand, so the first call
-     * for a run is the slow one.
+     * The one spot everybody starts from.
+     * <p>
+     * Asked of the game's own world-spawn search rather than worked out here.
+     * Taking the surface height at the origin put runs in the middle of oceans
+     * and standing in rivers, because the height of a water column is the top of
+     * the water — vanilla never spawns a new world that way, and neither should
+     * a run.
+     * <p>
+     * Chunks are tried in a square spiral out from the origin, which generates
+     * them as it goes, so the first call for a run is the slow one. If a whole
+     * spiral of ocean turns up nothing, the origin is used regardless: a wet
+     * start beats a run that will not begin.
      */
     public static BlockPos spawn(ServerLevel level) {
-        // Forces the chunk through generation before the height is read; asking
-        // an ungenerated column how tall it is answers zero.
+        BlockPos found = findSpawn(level);
+        if (found != null) return found;
+        LOGGER.warn("no dry spawn within {} chunks of {}, starting at the origin",
+            SPAWN_SEARCH_CHUNKS, level.dimension().identifier());
         level.getChunk(0, 0);
         return new BlockPos(0, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, 0, 0), 0);
+    }
+
+    /**
+     * Dry land near the origin, or nothing.
+     * <p>
+     * Nothing is a real answer here, and the reason this is separate from
+     * {@link #spawn}: a caller choosing between seeds wants to hear that this one
+     * is all ocean so it can throw the world away, not be handed the middle of
+     * the sea as a compromise.
+     * <p>
+     * The search is the game's own — the same one that places a new world's
+     * spawn, which refuses anything standing in liquid. Chunks are tried in a
+     * square spiral out from the origin, generating them as it goes, so an ocean
+     * seed is the expensive one to rule out.
+     */
+    public static BlockPos findSpawn(ServerLevel level) {
+        for (ChunkPos chunk : spiral(SPAWN_SEARCH_CHUNKS)) {
+            BlockPos found = PlayerSpawnFinder.getSpawnPosInChunk(level, chunk);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /** Chunk positions outward from the origin, nearest rings first. */
+    private static List<ChunkPos> spiral(int rings) {
+        List<ChunkPos> out = new ArrayList<>();
+        out.add(new ChunkPos(0, 0));
+        for (int r = 1; r <= rings; r++) {
+            for (int x = -r; x <= r; x++) {
+                for (int z = -r; z <= r; z++) {
+                    // Only the new ring, not the filled square: everything inside
+                    // has already been tried on an earlier pass.
+                    if (Math.max(Math.abs(x), Math.abs(z)) == r) out.add(new ChunkPos(x, z));
+                }
+            }
+        }
+        return out;
     }
 
     /**
