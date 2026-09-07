@@ -57,9 +57,10 @@ tasks.withType(JavaCompile).configureEach {
 
 java {
 	toolchain {
-		// 26, not 25: this machine has no JDK 25 and Gradle will not invent one.
-		// The bytecode target stays 25 via options.release above, so mixin's
-		// JAVA_25 compatibilityLevel is unaffected by compiling on a newer JDK.
-		languageVersion = JavaLanguageVersion.of(26)
+		// 25, matching options.release above, the mixin JAVA_25 compatibilityLevel
+		// and fabric.mod.json's `"java": ">=25"`. Was pinned to 26 only because the
+		// machine had no JDK 25 to compile on; temurin-25 now covers it, so the
+		// toolchain and the bytecode target no longer disagree.
+		languageVersion = JavaLanguageVersion.of(25)
 	}
 }

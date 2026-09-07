@@ -39,10 +39,43 @@ Published at https://github.com/ArchReikoku/synaptic (MIT).
 ./gradlew runClient      # dev client
 ```
 
-`JAVA_HOME` points at temurin-21, which is too old. Build with
-`$env:JAVA_HOME = "C:\Users\om\.jdks\openjdk-26.0.1"` — that is the only JDK 25+ on the
-machine, which is why the toolchain asks for 26 while `options.release` still targets 25.
 The jar is named from `mod_version` in `gradle.properties`.
+
+### One JDK: Temurin 25
+
+**Everyone on this project builds on Eclipse Temurin 25 (LTS). Do not build on anything
+else, and do not raise or lower the number on your own machine.** Four places already
+agree on 25 and have to keep agreeing:
+
+| Where | Setting |
+| --- | --- |
+| `build.gradle` | `java.toolchain.languageVersion = 25` |
+| `build.gradle` | `options.release = 25` |
+| `src/main/resources/synaptic.mixins.json` | `"compatibilityLevel": "JAVA_25"` |
+| `src/main/resources/fabric.mod.json` | `"java": ">=25"` |
+
+Changing one without the others is how you get a jar that compiles here and refuses to
+load there, so a JDK change is a four-file change plus a word to whoever else is working
+on the mod — never a quiet local edit. Vendor is a convention, not a constraint: the
+toolchain pins the *version*, not Temurin specifically, so another 25 will build. We
+still all say Temurin so that "works on my machine" means the same machine everywhere.
+
+Getting one:
+
+- **IntelliJ** — Project Structure → SDKs → `+` → Download JDK → version 25, vendor
+  Eclipse Temurin. Then set it as the Project SDK, and as the Gradle JVM under
+  Settings → Build Tools → Gradle.
+- **Command line** — Gradle needs a JVM before it can read the build, so `JAVA_HOME`
+  must be set or `java` must be on `PATH`; a bare `./gradlew` with neither dies at the
+  launcher. On this machine:
+  `$env:JAVA_HOME = "C:\Users\magom\.jdks\temurin-25.0.4.1"` (your path will differ).
+- **Neither** — the foojay resolver in `settings.gradle` downloads a matching JDK for the
+  *compile* toolchain by itself, but it cannot help the launcher. You still need a JVM to
+  start Gradle with.
+
+After switching JDKs, run `./gradlew --stop` before building. Gradle reuses a live daemon
+regardless of which JVM it was started on, which will happily hide the fact that your new
+JDK was never exercised.
 
 **The Gradle and Loom versions are a matched pair — do not bump one alone.** Loom 1.17.20
 declares `org.gradle.plugin.api-version` 9.5.0. Gradle 9.6 removed
