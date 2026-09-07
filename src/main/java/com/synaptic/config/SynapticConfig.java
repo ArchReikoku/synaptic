@@ -7,9 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
+import com.synaptic.report.SynapticLog;
+
 import net.fabricmc.loader.api.FabricLoader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Which features are switched on, as a bitmask of {@link Feature} ordinals.
@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
  * client threads.
  */
 public final class SynapticConfig {
-    private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
+    private static final SynapticLog LOGGER = SynapticLog.get();
     private static final String FILE_NAME = "synaptic.properties";
 
     private static volatile int bits = defaultBits();

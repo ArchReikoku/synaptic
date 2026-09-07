@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.synaptic.mixin.MinecraftServerAccessor;
+import com.synaptic.report.SynapticLog;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.minecraft.core.BlockPos;
@@ -26,8 +27,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.storage.DerivedLevelData;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Creating, entering and destroying a dimension while the server runs.
@@ -44,7 +43,7 @@ import org.slf4j.LoggerFactory;
  * save would otherwise share out to every dimension in it.
  */
 public final class RuntimeDimension {
-    private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
+    private static final SynapticLog LOGGER = SynapticLog.get();
     /** How far out to look for dry land before giving up, in chunks. */
     private static final int SPAWN_SEARCH_CHUNKS = 6;
     /** Read by ServerLevelSeedMixin during the level constructor. See there. */

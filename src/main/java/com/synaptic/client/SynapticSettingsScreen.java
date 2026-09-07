@@ -6,9 +6,11 @@ import java.util.List;
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.ConfigUpdatePayload;
+import com.synaptic.net.NextRunPayload;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.components.Tooltip;
@@ -45,8 +47,11 @@ public final class SynapticSettingsScreen extends Screen {
     // with it — which is how a feature that is in this list reads as missing.
     private static final int COLUMNS = 3;
     private static final int BUTTON_WIDTH = 106;
+    private static final int BUTTON_HEIGHT = 20;
     private static final int SPACING = 6;
     private static final int FOOTER_MARGIN = 10;
+    /** How far the corner buttons sit from the edges they are pinned to. */
+    private static final int CORNER_MARGIN = 8;
 
     private static final List<String> MERGE_WARNING = List.of(
         "Shared inventory ON merges everyone's items",
@@ -63,10 +68,19 @@ public final class SynapticSettingsScreen extends Screen {
         "and can stop you breaking it at all.");
 
     private final boolean editable;
+    /** Where Done and Cancel go back to, or null to close to the game. */
+    private final Screen parent;
     private int pending;
 
+    /** Opened by the key bind, from the game — closing means back to playing. */
     public SynapticSettingsScreen() {
+        this(null);
+    }
+
+    /** Opened from another screen, which is where closing should land. */
+    public SynapticSettingsScreen(Screen parent) {
         super(Component.literal("Synaptic Settings"));
+        this.parent = parent;
         // Set here and not in init(), which runs again on every rebuild and would
         // throw away edits that have not been sent yet.
         this.pending = SynapticConfig.bits();
@@ -161,6 +175,43 @@ public final class SynapticSettingsScreen extends Screen {
         grid.arrangeElements();
         grid.setPosition((this.width - grid.getWidth()) / 2, Math.max(8, (this.height - grid.getHeight()) / 2));
         grid.visitWidgets(this::addRenderableWidget);
+
+        addCornerButtons();
+    }
+
+    /**
+     * The two buttons that are not settings, in the corners and out of the way.
+     * <p>
+     * Neither belongs in the grid. The grid is a list of things this screen
+     * changes, ending in the two buttons that decide whether those changes
+     * happen; a bug report and a fresh run are neither, and putting them in the
+     * footer made Done and Cancel share a row with something that ignores both.
+     * The corners are the part of this screen the grid never reaches.
+     * <p>
+     * Added after the grid has been placed and visited, so they are positioned
+     * against the screen rather than against a layout — and so a rebuild puts
+     * them back in the same corners whatever the grid did in between.
+     */
+    private void addCornerButtons() {
+        addRenderableWidget(Button.builder(Component.literal("Report a bug"),
+            button -> this.minecraft.setScreenAndShow(new BugReportScreen(this)))
+            .bounds(CORNER_MARGIN, CORNER_MARGIN, BUTTON_WIDTH, BUTTON_HEIGHT).build());
+
+        // Host only, like every other way of starting a run: it throws away the
+        // world everybody is playing. The server refuses it regardless.
+        if (!SynapticConfig.enabled(Feature.RUN_RESET) || !editable) return;
+        addRenderableWidget(Button.builder(Component.literal("Next run"), button -> {
+            // Deliberately not sending `pending` first. This abandons the world
+            // the settings were about, so saving them on the way out would write
+            // a change nobody gets to play — the run that starts reads the
+            // settings actually in force, which is what the grid is showing.
+            ClientPlayNetworking.send(new NextRunPayload());
+            // Straight to the loading screen: generating candidates takes
+            // seconds, and a button that does nothing visible for that long
+            // reads as broken.
+            LobbyClient.showTourScreen(Minecraft.getInstance());
+        }).bounds(this.width - CORNER_MARGIN - BUTTON_WIDTH, CORNER_MARGIN, BUTTON_WIDTH, BUTTON_HEIGHT)
+            .build());
     }
 
     private Button toggleFor(Feature feature) {
@@ -187,6 +238,15 @@ public final class SynapticSettingsScreen extends Screen {
      */
     private StringWidget label(Component text) {
         return new StringWidget(text, this.font);
+    }
+
+    @Override
+    public void onClose() {
+        if (parent == null) {
+            super.onClose();
+        } else {
+            this.minecraft.setScreenAndShow(parent);
+        }
     }
 
     private Component labelFor(Feature feature) {

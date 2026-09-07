@@ -16,13 +16,12 @@ import java.util.UUID;
 
 import com.synaptic.net.StatsSyncPayload;
 import com.synaptic.net.WipeReportPayload;
+import com.synaptic.report.SynapticLog;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * What each player has done, counted twice: once for the run they are in and
@@ -38,7 +37,7 @@ import org.slf4j.LoggerFactory;
  * now, because a world's story includes the player who left an hour ago.
  */
 public final class SessionStats {
-    private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
+    private static final SynapticLog LOGGER = SynapticLog.get();
     private static final String DIRECTORY = "synaptic";
     private static final String MARKER = "synaptic-session.id";
     private static final String COUNTER = "next-session.txt";

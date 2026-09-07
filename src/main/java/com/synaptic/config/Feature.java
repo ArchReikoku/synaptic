@@ -47,8 +47,8 @@ public enum Feature {
     SOLO_SLEEP(Group.EXTRAS, "Solo Sleep",
         "One player in a bed skips the night."),
     RUN_RESET(Group.EXTRAS, "Next Run",
-        "Adds a Next Run button to the death screen and the pause menu. Starts a fresh world on a new seed "
-            + "without anyone disconnecting. Host only."),
+        "Adds a Next Run button to the death screen and this screen's top right. Starts a fresh world on a "
+            + "new seed without anyone disconnecting. Host only."),
     DEATH_REPORT(Group.EXTRAS, "Death Report",
         "Replaces the death screen with the run's report: who died, how, and how everyone did. "
             + "Needs the mod on your client."),

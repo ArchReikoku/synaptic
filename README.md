@@ -35,7 +35,7 @@ banking your own supplies while someone else starves.
 | **Damage Chat** | Announces every hit with the damage, its cause and the hearts left: `Steve took 1.5❤ damage from fall (3.5❤ left)` |
 | **Damage Sound** | Everyone hears a hurt sound when anyone is hit, however far apart you are. |
 | **Solo Sleep** | One player in a bed skips the night. |
-| **Next Run** | A Next Run button on the death screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, wipes inventories and deletes the run you came from — without anyone disconnecting. Host only. |
+| **Next Run** | A Next Run button on the death screen, and in the top right of the settings screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, wipes inventories and deletes the run you came from — without anyone disconnecting. Host only. |
 | **Death Report** | Replaces the death screen with the run's obituary: whose death ended it and how, and the session totals for everyone. Vanilla's buttons move to a row in the corner. |
 | **Session Tab** | Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned, advancements unlocked and deaths caused — for everyone who has joined. Kept across world resets; offline players stay listed, dimmed. |
 | **Tool Swap Mining** | Mining progress survives a change of held item — see the note below. |
@@ -77,6 +77,22 @@ recommended; the settings screen warns you if you switch it off.
 **Toggling shared inventory mid-game costs you.** Turning it back on merges every player's
 inventory into a single 36-slot one, and anything that does not fit is destroyed. The
 settings screen warns before you commit, and announces it in chat afterwards.
+
+## Reporting a bug
+
+**Report a bug** sits in the top left of the settings screen — press **K**, or use the
+Synaptic button at the top of the pause menu. Describe what happened and Synaptic writes
+the rest — versions, your settings, and the log lines from this session — to a file in
+`synaptic-reports/` inside your game folder.
+
+Nothing is sent anywhere on its own. The file is yours to read first, and **Open report**
+and **Open report folder** are right there to do it with. A separate button opens a
+prefilled GitHub issue if you want to file it, and the game asks before it opens a browser.
+Your server address, player names and UUIDs are deliberately left out — a bug report ends
+up in public, and none of that helps fix anything.
+
+The log the report carries is the one from your own game, so on a dedicated server it holds
+the client's side of the story. The server's lines are in the server's log.
 
 ## Building
 

@@ -14,6 +14,7 @@ import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.CaptureFramePayload;
 import com.synaptic.net.LobbyStatePayload;
 import com.synaptic.net.SynapticNetworking;
+import com.synaptic.report.SynapticLog;
 import com.synaptic.stats.SessionStats;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -26,8 +27,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.levelgen.WorldOptions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The seed lobby: several candidate worlds generated at once, looked at, and one
@@ -84,7 +83,7 @@ public final class LobbyManager {
         private GameType mode;
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("synaptic");
+    private static final SynapticLog LOGGER = SynapticLog.get();
     private static final List<Candidate> candidates = new ArrayList<>();
     private static final Map<UUID, Tour> tours = new LinkedHashMap<>();
     private static final Map<UUID, GameType> heldModes = new HashMap<>();
