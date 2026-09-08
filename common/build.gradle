@@ -1,0 +1,37 @@
+plugins {
+	// ModDevGradle in "Vanilla-mode": give it a NeoForm version instead of a
+	// NeoForge version and it produces a plain Minecraft jar with no loader code
+	// in it at all. That is exactly what this project wants to compile against —
+	// nothing here may reference Fabric or NeoForge, and the only reliable way to
+	// keep it that way is to make it impossible.
+	id 'net.neoforged.moddev' version "${moddev_version}"
+}
+
+neoForge {
+	// NOT `version` — that would pull NeoForge in and defeat the point.
+	neoFormVersion = rootProject.neoform_version
+
+	// No run configurations. This project produces no mod and cannot launch one;
+	// `fabric` and `neoforge` own the run tasks.
+}
+
+dependencies {
+	// The one thing bare vanilla does not supply and the shared code still needs.
+	// com.synaptic.mixin is written once and compiled into both jars, so its
+	// annotations have to resolve here too — a vanilla game jar has no
+	// org.spongepowered.asm on it.
+	//
+	// compileOnly, and only here: at runtime the mixin library comes from
+	// whichever loader is hosting the mod. The exact artifact is the one NeoForge
+	// itself lists among its libraries, which is the same Fabric fork Loom puts on
+	// the Fabric side — so all three projects compile against one Mixin.
+	compileOnly "net.fabricmc:sponge-mixin:${rootProject.mixin_version}"
+}
+
+// This jar is never shipped and never depended on. It exists so `gradle :common:build`
+// is a real check that the shared code still compiles against bare vanilla — the
+// loader projects compile these sources themselves, from source (see their build
+// files), rather than consuming this artifact.
+tasks.named('jar') {
+	archiveClassifier = 'dev-check'
+}

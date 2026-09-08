@@ -32,14 +32,48 @@ what gets written to the repo's history.
 **Synaptic** — a Fabric mod for Minecraft 26.2. One life shared across every player.
 Published at https://github.com/ArchReikoku/synaptic (MIT).
 
+## Three projects, two jars
+
+**Synaptic builds for Fabric and NeoForge from one codebase.**
+
+| Where | What is in it |
+| --- | --- |
+| `common/` | Everything that only needs vanilla Minecraft — nearly all of it. Compiled against a plain NeoForm game jar with **no loader on the classpath at all**. |
+| `fabric/` | Loom. `SynapticFabric`, `FabricPlatform`, the client pair, `fabric.mod.json`. |
+| `neoforge/` | ModDevGradle. `SynapticNeoForge`, `NeoForgePlatform`, the client pair, `neoforge.mods.toml`. |
+
+The loader projects do not depend on `common`'s jar; they add its source directories to
+their own source sets, so the shared code is compiled again against each loader's game jar
+and lands directly in each mod jar. Nothing is shadowed and no mixin config is buried in a
+dependency.
+
+**`common` may not import `net.fabricmc` or `net.neoforged`, and cannot** — it has neither
+on its class path. Anything a loader answers differently goes through
+`com.synaptic.platform.Platform` (or `ClientPlatform` for the client half), which is
+implemented once per loader and installed by that loader's entrypoint before anything else
+runs. Keep it small: every method on it is a thing written twice that can disagree twice.
+
+**Loader modules are wiring only.** If a decision about the game is being made in
+`SynapticFabric` or `SynapticNeoForge`, it is in the wrong file — the other one has to make
+the same decision and the two will drift. Put it in `common` and call it from both.
+
 ## Building, when asked
 
 ```
-./gradlew build          # jar lands in build/libs/
-./gradlew runClient      # dev client
+./gradlew collectJars        # both jars, gathered into build/libs/
+./gradlew :fabric:build      # fabric/build/libs/
+./gradlew :neoforge:build    # neoforge/build/libs/
+./gradlew :common:build      # compiles the shared code against bare vanilla
+./gradlew :fabric:runClient      # dev client, Fabric
+./gradlew :neoforge:runClient    # dev client, NeoForge
 ```
 
-The jar is named from `mod_version` in `gradle.properties`.
+The jars are named from `mod_version` in `gradle.properties` and carry the loader in the
+name — `synaptic-fabric-2.4.0.jar`, `synaptic-neoforge-2.4.0.jar`.
+
+`:common:build` is the cheap check worth running first. A loader import that has crept into
+shared code fails there, in seconds, instead of in whichever of the two jars happens to be
+built second.
 
 ### One JDK: Temurin 25
 
@@ -49,13 +83,15 @@ agree on 25 and have to keep agreeing:
 
 | Where | Setting |
 | --- | --- |
-| `build.gradle` | `java.toolchain.languageVersion = 25` |
-| `build.gradle` | `options.release = 25` |
-| `src/main/resources/synaptic.mixins.json` | `"compatibilityLevel": "JAVA_25"` |
-| `src/main/resources/fabric.mod.json` | `"java": ">=25"` |
+| `build.gradle` (root, `subprojects`) | `java.toolchain.languageVersion = 25` |
+| `build.gradle` (root, `subprojects`) | `options.release = 25` |
+| `common/src/main/resources/synaptic.mixins.json` | `"compatibilityLevel": "JAVA_25"` |
+| `fabric/src/main/resources/fabric.mod.json` | `"java": ">=25"` |
 
-Changing one without the others is how you get a jar that compiles here and refuses to
-load there, so a JDK change is a four-file change plus a word to whoever else is working
+Still four, not five: the first two moved to the root `subprojects` block, where they cover
+all three projects at once, and `neoforge.mods.toml` has no Java field to disagree with
+them. Changing one without the others is how you get a jar that compiles here and refuses
+to load there, so a JDK change is a four-file change plus a word to whoever else is working
 on the mod — never a quiet local edit. Vendor is a convention, not a constraint: the
 toolchain pins the *version*, not Temurin specifically, so another 25 will build. We
 still all say Temurin so that "works on my machine" means the same machine everywhere.
@@ -83,6 +119,19 @@ declares `org.gradle.plugin.api-version` 9.5.0. Gradle 9.6 removed
 before reading a single source file; Gradle 8.x is rejected by Loom's variant metadata. The
 wrapper is pinned to 9.5.0 for exactly that window.
 
+**That window now has to hold ModDevGradle too.** MDG 2.0.146 declares no
+`org.gradle.plugin.api-version` of its own, so it will not refuse 9.5 on metadata grounds —
+but it is the newer of the two plugins and Loom is the one with the hard ceiling, so if the
+pair ever stops working the wrapper stays where it is and MDG moves. Pin MDG to a release
+for the same reason Loom is pinned: snapshots are mutable and revalidated on a TTL.
+
+The three version numbers that have to agree about the game are `minecraft_version` (26.2),
+`neoforge_version` (26.2.0.x — NeoForge's line tracks the game) and `neoform_version`, which
+is what `common` compiles against. Do not guess the last one: read it out of the NeoForge
+build's own `neoforge-<version>-moddev-config.json` on maven, whose `mcp` field names it
+(`net.neoforged:neoform:26.2-2@zip` for 26.2.0.82). Taken from anywhere else, `common` and
+`neoforge` end up compiled against two different Minecrafts.
+
 ## Versioning
 
 Semantic versioning, `MAJOR.MINOR.PATCH`, set by `mod_version` in `gradle.properties`.
@@ -106,6 +155,13 @@ a release at all.
 across one.** Settings travel between client and server as a bitmask of enum ordinals, so a
 jar whose `Feature` order differs reads the other side's settings as nonsense. The config
 file is keyed by name and survives reordering; the wire format does not.
+
+On NeoForge the loader will now catch that for you: `SynapticNeoForge.PROTOCOL` is compared
+between the two ends and a mismatch refuses the connection outright, which is a far better
+failure than a garbled bitmask. **Bump `PROTOCOL` whenever a payload's shape changes,
+`Feature` included.** Fabric has no equivalent and still relies on the rule above, so the
+two jars are only as safe as the weaker of them — the bump is not optional just because one
+side would have noticed.
 
 ## Things that bit us before
 

@@ -1,0 +1,46 @@
+plugins {
+	// UNOBFUSCATED MC (26.x+) toolchain.
+	// The 26.x game ships with real Mojang names, so there is NOTHING to remap:
+	//   - the plugin id is the NEW non-remap Loom id `net.fabricmc.fabric-loom`
+	//     (NOT the legacy `fabric-loom`, whose remap pipeline requires a `mappings`
+	//     configuration and dies with "Configuration 'mappings' has no dependencies"),
+	//   - there is NO `mappings "net.fabricmc:yarn:..."` line anywhere,
+	//   - loader/fabric-api are plain `implementation` (not `modImplementation`),
+	//   - the plain `jar` IS the artifact (no remapJar step exists on this path).
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+	// Distinct from the NeoForge jar, since both now land in build/libs when the
+	// root `collectJars` task gathers them.
+	archivesName = "${rootProject.archives_base_name}-fabric"
+}
+
+// The shared code is compiled HERE, from common's sources, rather than pulled in
+// as a jar. Two reasons: the mixin config and the assets have to sit in this jar
+// at a path Fabric will look at, and compiling against this project's own game
+// jar is what proves the shared code really is portable rather than merely
+// binary-compatible today.
+sourceSets.main.java.srcDir rootProject.file('common/src/main/java')
+sourceSets.main.resources.srcDir rootProject.file('common/src/main/resources')
+
+dependencies {
+	minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+	// Unobfuscated: plain `implementation`, NOT modImplementation — nothing needs
+	// remapping, and the legacy mod* configurations belong to the remap pipeline.
+	implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_version}"
+
+	// NOTE (vs the 1.21.1 template): NO fabric-mixin-compile-extensions
+	// annotationProcessor here. That AP exists to write refmaps against yarn
+	// mappings; an unobfuscated game has no mappings and needs no refmap. Mixins
+	// still work — declared in synaptic.mixins.json (which lives in common's
+	// resources) with "compatibilityLevel": "JAVA_25", targeting REAL Mojang names.
+}
+
+processResources {
+	inputs.property "version", project.version
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version
+	}
+}

@@ -1,6 +1,6 @@
 # Synaptic
 
-**One life, shared.** A Fabric mod for Minecraft 26.2 that pools health, hunger, experience,
+**One life, shared.** A Fabric **and NeoForge** mod for Minecraft 26.2 that pools health, hunger, experience,
 status effects, advancements, pets, the inventory and the ender chest across every player
 online — and if one player dies, everyone dies, then comes back together.
 
@@ -59,7 +59,16 @@ where there is no host sitting at the game, it is operators instead.
 
 ## Installing
 
-- **Minecraft 26.2**, **Fabric Loader 0.19.3+**, **Fabric API**, **Java 25+**
+One mod, two jars — take the one that matches your loader. They are the same mod and
+behave the same; a Fabric client and a NeoForge client cannot join the same server, but
+that was already true of the loaders themselves.
+
+| Loader | Jar | Also needs |
+|---|---|---|
+| **Fabric** | `synaptic-fabric-<version>.jar` | Fabric Loader 0.19.3+, **Fabric API** |
+| **NeoForge** | `synaptic-neoforge-<version>.jar` | NeoForge 26.2.0.82+ |
+
+- **Minecraft 26.2** and **Java 25+** either way.
 - Drop the jar in `mods/`.
 
 Almost everything runs server-side, so on a multiplayer server the mod only strictly needs
@@ -97,10 +106,29 @@ the client's side of the story. The server's lines are in the server's log.
 ## Building
 
 ```
-./gradlew build
+./gradlew collectJars
 ```
 
-The jar lands in `build/libs/`. Requires a JDK 25+.
+Builds both loaders and gathers the two jars into `build/libs/`. Requires a JDK 25+.
+
+To build one at a time:
+
+```
+./gradlew :fabric:build     # fabric/build/libs/
+./gradlew :neoforge:build   # neoforge/build/libs/
+```
+
+The source lives in three places. `common/` holds everything that only needs vanilla
+Minecraft, which is nearly all of it; `fabric/` and `neoforge/` hold the entrypoints, the
+event wiring and the networking calls, and nothing else. `common/` compiles on its own
+against a plain Minecraft jar with no loader on the classpath —
+
+```
+./gradlew :common:build
+```
+
+— which is what stops loader-specific code drifting into shared code: if it compiles
+there, both jars can use it.
 
 ## License
 
