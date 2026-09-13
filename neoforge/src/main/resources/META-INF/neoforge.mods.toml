@@ -15,7 +15,11 @@ issueTrackerURL="https://github.com/ArchReikoku/synaptic/issues"
     version="${version}"
     displayName="Synaptic"
     authors="Reikoku"
-    logoFile="assets/synaptic/icon.png"
+    # iconFile, not logoFile: NeoForge split the old single `logoFile` into a
+    # square `iconFile` and a wide `bannerFile`, and warns on startup about the
+    # old name. This is the same 128x128 square the Fabric jar names as its
+    # `icon`, so there is one image and it is the icon one.
+    iconFile="assets/synaptic/icon.png"
     # MATCH_VERSION would put a red X against any server whose Synaptic version
     # differs from the client's, and refuse nothing. This mod is built to be
     # played with an unmodded client — the tab table, the world picker and the

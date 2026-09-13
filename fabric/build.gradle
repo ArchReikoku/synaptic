@@ -39,8 +39,14 @@ dependencies {
 }
 
 processResources {
-	inputs.property "version", project.version
+	// Read at configuration time, into a local, exactly as the NeoForge build
+	// does it. Reaching for `project` from inside the filesMatching closure
+	// would resolve it while the task RUNS, which Gradle 9 deprecates and
+	// Gradle 10 fails outright — and the wrapper is pinned to 9.5 by Loom's
+	// ceiling, so this would go unnoticed here until the day that pin moves.
+	def modVersion = project.version
+	inputs.property "version", modVersion
 	filesMatching("fabric.mod.json") {
-		expand "version": project.version
+		expand "version": modVersion
 	}
 }
