@@ -35,7 +35,7 @@ banking your own supplies while someone else starves.
 | **Damage Chat** | Announces every hit with the damage, its cause and the hearts left: `Steve took 1.5❤ damage from fall (3.5❤ left)` |
 | **Damage Sound** | Everyone hears a hurt sound when anyone is hit, however far apart you are. |
 | **Solo Sleep** | One player in a bed skips the night. |
-| **Next Run** | A Next Run button on the death screen, and in the top right of the settings screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, wipes inventories and deletes the run you came from — without anyone disconnecting. Host only. |
+| **Next Run** | A Next Run button on the death screen, and in the top right of the settings screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, and deletes the run you came from — without anyone disconnecting. It starts the way a new world does: morning, clear sky, empty inventories, no advancements. Host only. |
 | **Death Report** | Replaces the death screen with the run's obituary: whose death ended it and how, and the session totals for everyone. Vanilla's buttons move to a row in the corner. |
 | **Session Tab** | Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned, advancements unlocked and deaths caused — for everyone who has joined. Kept across world resets; offline players stay listed, dimmed. |
 | **Tool Swap Mining** | Mining progress survives a change of held item — see the note below. |

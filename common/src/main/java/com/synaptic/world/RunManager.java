@@ -13,13 +13,21 @@ import com.synaptic.mixin.PrimaryLevelDataAccessor;
 import com.synaptic.stats.SessionStats;
 
 import net.minecraft.ChatFormatting;
+import net.minecraft.advancements.AdvancementHolder;
+import net.minecraft.advancements.AdvancementProgress;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.PlayerAdvancements;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.clock.ClockTimeMarkers;
+import net.minecraft.world.clock.WorldClock;
+import net.minecraft.world.clock.WorldClocks;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.level.GameType;
@@ -134,10 +142,13 @@ public final class RunManager {
         // for exactly the players that mattered.
         for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
             restoreMode(player, modes.get(player.getUUID()));
-            reset(player);
+            reset(server, player);
             RuntimeDimension.send(player, level, spawn, START_YAW);
             pointRespawnAt(player, level, spawn);
         }
+        // The sky and the clock, which the new dimension does not reset for
+        // itself — see freshSkies. Once for the server, not once per player.
+        freshSkies(server);
         currentRun = name;
         currentSeed = seed;
         // Written to the session file so a restart can find its way back here.
@@ -464,13 +475,75 @@ public final class RunManager {
     }
 
     /**
+     * Morning, and a clear sky.
+     * <p>
+     * <b>Neither of these belongs to the run's dimension, which is why building
+     * a new one does not reset them.</b> In 26.2 weather is a single
+     * server-wide {@code WeatherData} and the time of day a single server-wide
+     * {@code ServerClockManager} — that is why the save keeps one
+     * {@code weather.dat} and one {@code world_clocks.dat} rather than a pair
+     * per dimension. A brand new run therefore opens under whatever weather and
+     * whatever hour the last one ended in, which is the one thing that most
+     * gives away that it is not a new world.
+     * <p>
+     * Both calls are the ones {@code /weather clear} and {@code /time set day}
+     * make, so the result is exactly what a player typing those would get,
+     * client sync included. The clear duration is sampled the way vanilla
+     * samples it, so weather resumes naturally afterwards rather than the run
+     * being permanently sunny.
+     * <p>
+     * The overworld clock covers the run's overworld and its nether; the End
+     * runs on a clock of its own that has no day to move to.
+     */
+    private static void freshSkies(MinecraftServer server) {
+        server.setWeatherParameters(
+            ServerLevel.RAIN_DELAY.sample(server.overworld().getRandom()), 0, false, false);
+
+        Registry<WorldClock> clocks = server.registryAccess().lookupOrThrow(Registries.WORLD_CLOCK);
+        server.clockManager().moveToTimeMarker(
+            clocks.getOrThrow(WorldClocks.OVERWORLD), ClockTimeMarkers.DAY);
+    }
+
+    /**
+     * Take back every advancement, so the next run has them all to win again.
+     * <p>
+     * Only the completed criteria are revoked: the rest were never granted, and
+     * asking to take them back is a no-op that dirties the player for nothing.
+     * {@code getCompletedCriteria} builds a fresh list on each call, so revoking
+     * while walking it is safe.
+     * <p>
+     * Nothing cascades. The sharing mixin hooks {@code award} and not
+     * {@code revoke}, so taking one player's advancements away is exactly that
+     * and does not ripple through the group — which is why this is done per
+     * player rather than once.
+     * <p>
+     * The session table is deliberately left alone. Its advancement count is
+     * what this session has achieved across every run, not what is currently
+     * held, and a reset is not an undoing of the work.
+     */
+    private static void revokeAdvancements(MinecraftServer server, ServerPlayer player) {
+        PlayerAdvancements progress = player.getAdvancements();
+        for (AdvancementHolder advancement : server.getAdvancements().getAllAdvancements()) {
+            AdvancementProgress held = progress.getOrStartProgress(advancement);
+            for (String criterion : held.getCompletedCriteria()) {
+                progress.revoke(advancement, criterion);
+            }
+        }
+        // Pushes the emptied tree to the client, so the advancements screen
+        // agrees with the server rather than showing the last run's trophies
+        // until something else happens to refresh it.
+        progress.flushDirty(player, true);
+    }
+
+    /**
      * Put a player back to how they would start a brand new world.
      * <p>
      * Health and hunger are left to the shared pools, which are re-seeded once
      * everybody has landed — setting them here would only be overwritten a tick
      * later by whatever the pool decided.
      */
-    private static void reset(ServerPlayer player) {
+    private static void reset(MinecraftServer server, ServerPlayer player) {
+        revokeAdvancements(server, player);
         player.getInventory().clearContent();
         player.getEnderChestInventory().clearContent();
         for (MobEffectInstance effect : List.copyOf(player.getActiveEffects())) {
