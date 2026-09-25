@@ -203,6 +203,11 @@ side would have noticed.
   (`gui.screen()` / `setScreen`), not on `Minecraft` itself; the HUD is `gui.hud` with
   `toggle()` / `isHidden()` and there is no `Options.hideGui`; and `Screen.keyPressed`
   takes a single `net.minecraft.client.input.KeyEvent` rather than three ints.
+- **NeoForge ticks a cached copy of the level map.** `MinecraftServer.getWorldArray()` is
+  rebuilt only after `markWorldsDirty()`, which NeoForge itself never calls. A level put
+  into the map at runtime is never ticked on NeoForge — no weather cycle, no mobs — while
+  Fabric, on vanilla's live loop, works fine. `NeoForgePlatform.levelLoaded` /
+  `levelUnloaded` mark it dirty, so every runtime level must go through them.
 - **Mixins apply when their target class first loads**, not at startup. A broken injection
   surfaces on world entry or when the relevant entity first spawns.
 - **The settings screen lays out once.** `StringWidget` has no alignment methods in this

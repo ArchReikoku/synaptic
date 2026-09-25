@@ -71,6 +71,10 @@ public interface Platform {
      * would exist as far as the game is concerned and not exist as far as
      * everyone else is concerned, which is the sort of bug that surfaces in
      * somebody else's mod a week later.
+     * <p>
+     * It is also where a loader that keeps its own list of levels learns of the
+     * new one. NeoForge ticks a cached copy of the level map, so on NeoForge a
+     * level that skipped this would never be ticked at all.
      */
     void levelLoaded(MinecraftServer server, ServerLevel level);
 
