@@ -99,6 +99,15 @@ public final class LobbyManager {
     /** Whether the screens are already up for a lobby that has not been built yet. */
     private static boolean announced;
     /**
+     * The sky the lobby was opened under, for cancelling back into.
+     * <p>
+     * The lobby clears the weather and moves the clock to morning the moment it
+     * opens, so the worlds on offer are shown the way they will be played. That
+     * is the last run's sky being changed too — there is only one — and going
+     * back to a run should not find it mysteriously dawn with the storm gone.
+     */
+    private static Skies.Snapshot heldSky;
+    /**
      * Worlds built during play, waiting for the next lobby to want them.
      * <p>
      * The whole reason a reset can be quick: generating nine worlds takes as
@@ -138,6 +147,7 @@ public final class LobbyManager {
         heldModes.clear();
         open = false;
         announced = false;
+        heldSky = null;
         preparedGrid = 0;
         prepareTick = 0;
         // Carried across restarts rather than restarted, because the names it
@@ -187,7 +197,16 @@ public final class LobbyManager {
         // them there.
         boolean reopening = open;
         grid = Math.clamp(size, 1, 3);
-        if (!reopening) rememberHomes(server);
+        if (!reopening) {
+            rememberHomes(server);
+            // Before anything is generated, which can hold the server for
+            // seconds: the button is the moment the old run ends, so it is the
+            // moment its sky should go. Recycling keeps the sky it already has.
+            if (RunManager.currentRun() != null) {
+                heldSky = Skies.take(server, RunManager.currentLevel(server));
+            }
+            Skies.fresh(server);
+        }
         discard(server);
         // Remembered once, on the way into the first lobby of a run: recycling
         // reopens and would otherwise record the tour's own reduced distance as
@@ -278,6 +297,10 @@ public final class LobbyManager {
         finished.clear();
         warned.clear();
         server.getPlayerList().setViewDistance(heldViewDistance);
+        // Before anybody is moved, so the weather they are told about on
+        // arriving back is the run's own rather than the lobby's.
+        if (heldSky != null) Skies.restore(server, heldSky);
+        heldSky = null;
 
         // Everybody out before the worlds go: destroying a level with a player
         // still in it is what the fallback argument exists to prevent, and here
@@ -548,6 +571,9 @@ public final class LobbyManager {
 
         open = false;
         announced = false;
+        // The run it belonged to is about to be deleted; there is nothing left
+        // to give that sky back to.
+        heldSky = null;
         tours.clear();
         finished.clear();
         // The run itself is played at whatever distance the player chose.

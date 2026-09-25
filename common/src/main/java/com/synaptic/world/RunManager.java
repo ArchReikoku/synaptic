@@ -16,8 +16,6 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.advancements.AdvancementProgress;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
@@ -25,9 +23,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.PlayerAdvancements;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.clock.ClockTimeMarkers;
-import net.minecraft.world.clock.WorldClock;
-import net.minecraft.world.clock.WorldClocks;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.level.GameType;
@@ -147,8 +142,11 @@ public final class RunManager {
             pointRespawnAt(player, level, spawn);
         }
         // The sky and the clock, which the new dimension does not reset for
-        // itself — see freshSkies. Once for the server, not once per player.
-        freshSkies(server);
+        // itself — see Skies. The lobby already did this on the way in; it is
+        // done again because the tour took time, and the run should open at
+        // the start of the morning rather than wherever the lobby left it.
+        // Nobody sees the jump: everyone is mid-teleport into the new world.
+        Skies.fresh(server);
         currentRun = name;
         currentSeed = seed;
         // Written to the session file so a restart can find its way back here.
@@ -472,36 +470,6 @@ public final class RunManager {
     private static void pointRespawnAt(ServerPlayer player, ServerLevel level, BlockPos spawn) {
         player.setRespawnPosition(new ServerPlayer.RespawnConfig(
             LevelData.RespawnData.of(level.dimension(), spawn, START_YAW, 0.0F), true), false);
-    }
-
-    /**
-     * Morning, and a clear sky.
-     * <p>
-     * <b>Neither of these belongs to the run's dimension, which is why building
-     * a new one does not reset them.</b> In 26.2 weather is a single
-     * server-wide {@code WeatherData} and the time of day a single server-wide
-     * {@code ServerClockManager} — that is why the save keeps one
-     * {@code weather.dat} and one {@code world_clocks.dat} rather than a pair
-     * per dimension. A brand new run therefore opens under whatever weather and
-     * whatever hour the last one ended in, which is the one thing that most
-     * gives away that it is not a new world.
-     * <p>
-     * Both calls are the ones {@code /weather clear} and {@code /time set day}
-     * make, so the result is exactly what a player typing those would get,
-     * client sync included. The clear duration is sampled the way vanilla
-     * samples it, so weather resumes naturally afterwards rather than the run
-     * being permanently sunny.
-     * <p>
-     * The overworld clock covers the run's overworld and its nether; the End
-     * runs on a clock of its own that has no day to move to.
-     */
-    private static void freshSkies(MinecraftServer server) {
-        server.setWeatherParameters(
-            ServerLevel.RAIN_DELAY.sample(server.overworld().getRandom()), 0, false, false);
-
-        Registry<WorldClock> clocks = server.registryAccess().lookupOrThrow(Registries.WORLD_CLOCK);
-        server.clockManager().moveToTimeMarker(
-            clocks.getOrThrow(WorldClocks.OVERWORLD), ClockTimeMarkers.DAY);
     }
 
     /**
