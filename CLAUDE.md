@@ -29,7 +29,7 @@ what gets written to the repo's history.
 
 # Project notes
 
-**Synaptic** — a Fabric mod for Minecraft 26.2. One life shared across every player.
+**Synaptic** — a Fabric mod for Minecraft 26.3. One life shared across every player.
 Published at https://github.com/ArchReikoku/synaptic (MIT).
 
 ## Three projects, two jars
@@ -69,7 +69,7 @@ the same decision and the two will drift. Put it in `common` and call it from bo
 ```
 
 The jars are named from `mod_version` in `gradle.properties` and carry the loader in the
-name — `synaptic-fabric-2.4.0.jar`, `synaptic-neoforge-2.4.0.jar`.
+name — `synaptic-fabric-3.0.0.jar`, `synaptic-neoforge-3.0.0.jar`.
 
 `:common:build` is the cheap check worth running first. A loader import that has crept into
 shared code fails there, in seconds, instead of in whichever of the two jars happens to be
@@ -113,24 +113,25 @@ After switching JDKs, run `./gradlew --stop` before building. Gradle reuses a li
 regardless of which JVM it was started on, which will happily hide the fact that your new
 JDK was never exercised.
 
-**The Gradle and Loom versions are a matched pair — do not bump one alone.** Loom 1.17.20
+**The Gradle and Loom versions are a matched pair — do not bump one alone.** Loom 1.17.21
 declares `org.gradle.plugin.api-version` 9.5.0. Gradle 9.6 removed
 `JvmVendorSpec.IBM_SEMERU`, which Loom still references, so 9.6+ dies during configuration
 before reading a single source file; Gradle 8.x is rejected by Loom's variant metadata. The
 wrapper is pinned to 9.5.0 for exactly that window.
 
-**That window now has to hold ModDevGradle too.** MDG 2.0.146 declares no
+**That window now has to hold ModDevGradle too.** MDG 2.0.147 declares no
 `org.gradle.plugin.api-version` of its own, so it will not refuse 9.5 on metadata grounds —
 but it is the newer of the two plugins and Loom is the one with the hard ceiling, so if the
 pair ever stops working the wrapper stays where it is and MDG moves. Pin MDG to a release
 for the same reason Loom is pinned: snapshots are mutable and revalidated on a TTL.
 
-The three version numbers that have to agree about the game are `minecraft_version` (26.2),
-`neoforge_version` (26.2.0.x — NeoForge's line tracks the game) and `neoform_version`, which
+The three version numbers that have to agree about the game are `minecraft_version` (26.3),
+`neoforge_version` (26.3.0.x — NeoForge's line tracks the game) and `neoform_version`, which
 is what `common` compiles against. Do not guess the last one: read it out of the NeoForge
 build's own `neoforge-<version>-moddev-config.json` on maven, whose `mcp` field names it
-(`net.neoforged:neoform:26.2-2@zip` for 26.2.0.82). Taken from anywhere else, `common` and
-`neoforge` end up compiled against two different Minecrafts.
+(`net.neoforged:neoform:26.3-1@zip` for 26.3.0.16-beta). Taken from anywhere else, `common`
+and `neoforge` end up compiled against two different Minecrafts. The same file lists the
+`sponge-mixin` artifact that `mixin_version` has to match.
 
 ## Versioning
 
@@ -168,8 +169,8 @@ side would have noticed.
 - **26.2 renamed a lot.** `GuiGraphics`, `Minecraft.setScreen`, and `hasPermissions(int)`
   are all gone; gamerules moved to `net.minecraft.world.level.gamerules`; permissions are a
   `PermissionSet`. Check the real signature against
-  `~/.gradle/caches/fabric-loom/26.2/minecraft-merged.jar` with `javap` before writing
-  against a remembered API.
+  `~/.gradle/caches/fabric-loom/<minecraft_version>/minecraft-merged.jar` with `javap`
+  before writing against a remembered API.
 - **More 26.2 renames, found the hard way.** `ResourceLocation` is now
   `net.minecraft.resources.Identifier`; `ResourceKey.location()` is `identifier()`;
   `ChunkProgressListener*` is the `LevelLoadListener` family and the `ServerLevel`
@@ -177,6 +178,15 @@ side would have noticed.
   is gone, replaced by `getRespawnData()` returning a `LevelData.RespawnData` record that
   carries yaw and pitch as well as the position. On the Fabric side `ServerWorldEvents` is
   now `ServerLevelEvents`, with `onLevelLoad` / `onLevelUnload`.
+- **26.3 moved the render layer out from under blaze3d.** The pipeline, texture and
+  sampler types are now `com.mojang.renderpearl.api.*`, and the desktop openers left
+  `Util.OS`: `Util.getPlatform().openPath(...)` / `openUri(...)` are the static
+  `com.mojang.blaze3d.Blaze3D.openPath` / `openUri`. `ServerClockManager.moveToTimeMarker`
+  returns a `MoveResult` instead of a `boolean`. Every mixin target the mod uses came
+  through 26.3 unchanged.
+- **26.3 dropped GLFW for SDL3.** `org.lwjgl.glfw` is no longer on the class path, and key
+  codes are SDL scancodes (`1` is 30, not 49). Use `InputConstants.KEY_*` — never a raw
+  number or a `GLFW_KEY_*` — so the codes follow whichever library the game is on.
 - **`GuiGraphicsExtractor.blit` takes edges, not sizes.** The nine-argument
   `blit(Identifier, int, int, int, int, float, float, float, float)` is
   `(id, x0, y0, x1, y1, u0, u1, v0, v1)` — the bytecode reorders them to

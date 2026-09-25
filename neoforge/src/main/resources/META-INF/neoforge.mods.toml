@@ -38,7 +38,7 @@ issueTrackerURL="https://github.com/ArchReikoku/synaptic/issues"
 [[dependencies.${mod_id}]]
     modId="minecraft"
     type="required"
-    # Pinned to the one game version, the same way fabric.mod.json says "~26.2".
+    # Pinned to the one game version, the same way fabric.mod.json says "~26.3".
     # The mixins target real Mojang names against this game and nothing promises
     # they survive the next one.
     versionRange="[${minecraft_version}]"

@@ -1,5 +1,6 @@
 package com.synaptic.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.synaptic.config.SynapticConfig;
 import com.synaptic.net.CaptureFramePayload;
 import com.synaptic.net.ConfigSyncPayload;
@@ -9,7 +10,6 @@ import com.synaptic.net.WipeReportPayload;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import org.lwjgl.glfw.GLFW;
 
 /**
  * Everything the client does that is not a screen: what to do with each payload
@@ -31,7 +31,7 @@ public final class SynapticClient {
      * already exists.
      */
     public static final KeyMapping OPEN_SETTINGS =
-        new KeyMapping("key.synaptic.settings", GLFW.GLFW_KEY_K, KeyMapping.Category.MISC);
+        new KeyMapping("key.synaptic.settings", InputConstants.KEY_K, KeyMapping.Category.MISC);
 
     private SynapticClient() {
     }

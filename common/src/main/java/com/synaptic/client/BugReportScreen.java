@@ -3,6 +3,7 @@ package com.synaptic.client;
 import java.io.IOException;
 import java.nio.file.Path;
 
+import com.mojang.blaze3d.Blaze3D;
 import com.synaptic.report.SynapticLog;
 
 import net.minecraft.ChatFormatting;
@@ -12,7 +13,6 @@ import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.Util;
 
 /**
  * Describe a bug, save it, and — if you want to — carry it to GitHub or open
@@ -185,7 +185,8 @@ public final class BugReportScreen extends Screen {
     /** Hands a path to the desktop. Silent about it, as the game is elsewhere. */
     private void openPath(Path path) {
         if (path == null) return;
-        Util.getPlatform().openPath(path);
+        // 26.3 moved the desktop openers off Util.OS and onto Blaze3D.
+        Blaze3D.openPath(path);
     }
 
     /**

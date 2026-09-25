@@ -1,6 +1,6 @@
 # Synaptic
 
-**One life, shared.** A Fabric **and NeoForge** mod for Minecraft 26.2 that pools health, hunger, experience,
+**One life, shared.** A Fabric **and NeoForge** mod for Minecraft 26.3 that pools health, hunger, experience,
 status effects, advancements, pets, the inventory and the ender chest across every player
 online — and if one player dies, everyone dies, then comes back together.
 
@@ -65,10 +65,10 @@ that was already true of the loaders themselves.
 
 | Loader | Jar | Also needs |
 |---|---|---|
-| **Fabric** | `synaptic-fabric-<version>.jar` | Fabric Loader 0.19.3+, **Fabric API** |
-| **NeoForge** | `synaptic-neoforge-<version>.jar` | NeoForge 26.2.0.82+ |
+| **Fabric** | `synaptic-fabric-<version>.jar` | Fabric Loader 0.19.3+, **Fabric API** for 26.3 |
+| **NeoForge** | `synaptic-neoforge-<version>.jar` | NeoForge 26.3.0.16-beta+ |
 
-- **Minecraft 26.2** and **Java 25+** either way.
+- **Minecraft 26.3** and **Java 25+** either way.
 - Drop the jar in `mods/`.
 
 Almost everything runs server-side, so on a multiplayer server the mod only strictly needs

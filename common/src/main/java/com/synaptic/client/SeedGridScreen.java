@@ -1,5 +1,6 @@
 package com.synaptic.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.synaptic.net.LobbyActionPayload;
 import com.synaptic.platform.ClientPlatform;
 
@@ -7,7 +8,6 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
 
 /**
  * The candidate worlds, side by side, one keypress each.
@@ -139,36 +139,39 @@ public final class SeedGridScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         if (!LobbyClient.mayPick()) return super.keyPressed(event);
+        // 26.3 reads the keyboard through SDL rather than GLFW, so these are
+        // SDL scancodes now. InputConstants tracks whichever the game is on;
+        // 1 to 9 are still contiguous, which the slot arithmetic relies on.
         int key = event.key();
-        if (key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_9) {
-            int slot = key - GLFW.GLFW_KEY_1;
+        if (key >= InputConstants.KEY_1 && key <= InputConstants.KEY_9) {
+            int slot = key - InputConstants.KEY_1;
             if (slot < LobbyClient.slots()) send(LobbyActionPayload.PICK, slot);
             return true;
         }
         switch (key) {
-            case GLFW.GLFW_KEY_R -> {
+            case InputConstants.KEY_R -> {
                 send(LobbyActionPayload.RECYCLE, 0);
                 return true;
             }
             // Out of the lobby without choosing anything, back to the run that
             // was interrupted. Deliberately its own key rather than Escape:
             // Escape is pressed by reflex, and this ends the picking.
-            case GLFW.GLFW_KEY_C -> {
+            case InputConstants.KEY_C -> {
                 if (cancellable()) send(LobbyActionPayload.CANCEL, 0);
                 return true;
             }
             // The arrows only move the number in the corner. Changing the grid
             // throws away every world on screen and generates a new batch, which
             // is far too much to happen on a stray arrow key.
-            case GLFW.GLFW_KEY_UP -> {
+            case InputConstants.KEY_UP -> {
                 pendingGrid = Math.min(3, pendingGrid + 1);
                 return true;
             }
-            case GLFW.GLFW_KEY_DOWN -> {
+            case InputConstants.KEY_DOWN -> {
                 pendingGrid = Math.max(1, pendingGrid - 1);
                 return true;
             }
-            case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+            case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> {
                 if (pendingGrid != LobbyClient.grid()) send(LobbyActionPayload.RESIZE, pendingGrid);
                 return true;
             }
