@@ -1,6 +1,6 @@
 # Testing the patchwork-world fix and nearest-land spawn
 
-Not committed, and `mod_version` not bumped. Server-side only, with no protocol change.
+Released in 3.1.0. Server-side only, with no protocol change.
 
 **The bug:** sometimes a new world had a rectangle of different terrain around spawn, cut off by sheer walls.
 
@@ -44,7 +44,7 @@ I did not test anything in-game.
 
 # Testing the lobby lock (no movement, other players invisible)
 
-Not committed, and `mod_version` not bumped. This is a client-side change, so the client needs the new jar. The network protocol is unchanged.
+Released in 3.1.0. This is a client-side change, so the client needs the new jar. The network protocol is unchanged.
 
 **What changed:** while the seed lobby holds a player (`LobbyClient.active()`, meaning touring or at the grid), four new client mixins apply:
 
@@ -86,7 +86,7 @@ You need **two clients** on one world, because invisibility only shows with some
 
 # Testing the loader update (NeoForge 26.3.0.102, Fabric Loader 0.20.1)
 
-Minecraft stays on 26.3. Nothing is committed, and `mod_version` has not been bumped.
+Minecraft stays on 26.3. Released in 3.1.0.
 
 | | Old | New |
 | --- | --- | --- |
@@ -129,7 +129,7 @@ I did not test anything in-game, and I did not test the Fabric side beyond compi
 
 # Testing the six fixes
 
-These are the six fixes from the code review. Nothing is committed, and `mod_version` has not been bumped yet.
+These are the six fixes from the code review. Released in 3.1.0.
 
 > **Install the new jar on both ends.** `PROTOCOL` went from 1 to 2 because `ConfigSyncPayload` changed shape. An old jar on one end and a new one on the other will not work together.
 
@@ -233,7 +233,7 @@ For tests 1, 2 and 6 you need **two clients** on one world. Open a world to LAN 
 - **Tools:** two players wearing down the *same tool* in one tick costs it one use instead of two. Durability is a component, so the changed copies count as different items and the last one wins.
 - **Moving one stack:** two players moving the *same stack* out of one slot into two *different* slots in one tick still duplicates it. Fixing that needs tracking across slots.
 - **Hunger and Saturation effects** (shared via Effects) still apply once per player. Only Regeneration was in scope.
-- **Version number:** `mod_version` is still 3.0.0. These are bugfixes plus a protocol bump, so per the versioning rules the next release is at least 3.0.1. Whether it is 3.0.1 or higher is your call.
+- **Version number:** released in 3.1.0, together with the loader update, the lobby lock and the spawn fix.
 
 ## Files touched
 - `common/.../SynapticMod.java`: `mergeSlots`, `capped`, `Spill`, `healsForGroup`, `chooseHealer`; `addToPool` now returns what did not fit
