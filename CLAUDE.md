@@ -113,17 +113,21 @@ After switching JDKs, run `./gradlew --stop` before building. Gradle reuses a li
 regardless of which JVM it was started on, which will happily hide the fact that your new
 JDK was never exercised.
 
-**The Gradle and Loom versions are a matched pair — do not bump one alone.** Loom 1.17.21
-declares `org.gradle.plugin.api-version` 9.5.0. Gradle 9.6 removed
-`JvmVendorSpec.IBM_SEMERU`, which Loom still references, so 9.6+ dies during configuration
-before reading a single source file; Gradle 8.x is rejected by Loom's variant metadata. The
-wrapper is pinned to 9.5.0 for exactly that window.
+**The Gradle and Loom versions are a matched pair — check both when either moves.** The
+wrapper is on **Gradle 9.9.0**, with Loom 1.17.21. This file used to say Gradle 9.6+ kills
+Loom 1.17.21 during configuration, because 9.6 removed `JvmVendorSpec.IBM_SEMERU` and Loom
+references it. On 9.9.0 that did not happen: `./gradlew build`, `:fabric:ideaSyncTask` and
+both `neoForgeIdeSync` tasks all pass, with no deprecation warnings under
+`--warning-mode all` (checked 2026-11-11). **`runClient` has not yet been run on 9.9.0** on
+either loader. It is the one path left that could still reach the removed field, so if it
+fails with `NoSuchFieldError: IBM_SEMERU`, put the wrapper back to 9.5.0. Gradle 8.x is still
+rejected by Loom's variant metadata.
 
-**That window now has to hold ModDevGradle too.** MDG 2.0.147 declares no
-`org.gradle.plugin.api-version` of its own, so it will not refuse 9.5 on metadata grounds —
-but it is the newer of the two plugins and Loom is the one with the hard ceiling, so if the
-pair ever stops working the wrapper stays where it is and MDG moves. Pin MDG to a release
-for the same reason Loom is pinned: snapshots are mutable and revalidated on a TTL.
+**ModDevGradle has to work on the same Gradle.** MDG 2.0.147 declares no
+`org.gradle.plugin.api-version` of its own and builds fine on 9.9.0. If a future Gradle
+breaks only one of the two plugins, move that plugin rather than holding the other one back.
+Pin MDG to a release for the same reason Loom is pinned: snapshots are mutable and
+revalidated on a TTL.
 
 The three version numbers that have to agree about the game are `minecraft_version` (26.3),
 `neoforge_version` (26.3.0.x — NeoForge's line tracks the game) and `neoform_version`, which
