@@ -2,8 +2,11 @@
 .gradle/
 build/
 
-# Fabric dev runtime (worlds, logs, server files)
+# Dev runtimes (worlds, logs, server files) — one per loader project
 run/
+runs/
+fabric/run/
+neoforge/runs/
 
 # IDE
 .idea/

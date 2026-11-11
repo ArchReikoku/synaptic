@@ -4,7 +4,11 @@ pluginManagement {
             name = 'Fabric'
             url = 'https://maven.fabricmc.net/'
         }
-        // Resilience: loom's transitives also live on Maven Central.
+        maven {
+            name = 'NeoForged'
+            url = 'https://maven.neoforged.net/releases'
+        }
+        // Resilience: loom's and moddev's transitives also live on Maven Central.
         mavenCentral()
         gradlePluginPortal()
     }
@@ -13,3 +17,23 @@ pluginManagement {
 plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
 }
+
+rootProject.name = 'synaptic'
+
+// One codebase, two jars.
+//
+//   common   — every line that only needs vanilla Minecraft. Compiled here on
+//              its own against a plain NeoForm game jar, which is what stops a
+//              loader-specific import creeping in unnoticed: if it compiles
+//              here, it is portable by construction.
+//   fabric   — Loom. Entrypoints, event wiring, Fabric networking.
+//   neoforge — ModDevGradle. @Mod class, event bus wiring, NeoForge networking.
+//
+// The loader projects do NOT depend on common's *jar*. They add common's source
+// directories to their own source sets (see their build files), so the shared
+// code is compiled a second time against each loader's own game jar and lands
+// directly in each mod jar. That avoids jar-in-jar, shadowing, and the whole
+// question of whether a mixin config buried in a dependency gets found.
+include 'common'
+include 'fabric'
+include 'neoforge'

@@ -1,66 +1,47 @@
-plugins {
-	// UNOBFUSCATED MC (26.x+) toolchain.
-	// The 26.x game ships with real Mojang names, so there is NOTHING to remap:
-	//   - the plugin id is the NEW non-remap Loom id `net.fabricmc.fabric-loom`
-	//     (NOT the legacy `fabric-loom`, whose remap pipeline requires a `mappings`
-	//     configuration and dies with "Configuration 'mappings' has no dependencies"),
-	//   - there is NO `mappings "net.fabricmc:yarn:..."` line anywhere,
-	//   - loader/fabric-api are plain `implementation` (not `modImplementation`),
-	//   - the plain `jar` IS the artifact (no remapJar step exists on this path).
-	// PIN A STABLE RELEASE, never a SNAPSHOT: snapshots are mutable and re-validated
-	// against the live repo on a TTL, so a maven.fabricmc.net blip fails every build.
-	// 1.17.14 is the current final 1.17 release — immutable, cached permanently.
-	id 'net.fabricmc.fabric-loom' version "${loom_version}"
-}
+// Root project. Builds nothing itself — every artifact comes out of `fabric`
+// or `neoforge`. What lives here is the settings all three have to agree on,
+// because the JDK story in CLAUDE.md only holds if it is stated once.
+subprojects {
+	apply plugin: 'java'
 
-version = project.mod_version
-group = project.maven_group
+	version = rootProject.mod_version
+	group = rootProject.maven_group
 
-base {
-	archivesName = project.archives_base_name
-}
+	repositories {
+		maven { url = 'https://maven.fabricmc.net/' }
+		maven { url = 'https://maven.neoforged.net/releases' }
+		// Resilience: declare mavenCentral explicitly so an outage at either mod
+		// maven can't take out resolution of their mavenCentral-hosted transitives.
+		mavenCentral()
+	}
 
-repositories {
-	maven { url 'https://maven.fabricmc.net/' }
-	// Resilience: declare mavenCentral explicitly so a fabric-maven outage can't
-	// take out resolution of loom's mavenCentral-hosted transitives.
-	mavenCentral()
-}
+	tasks.withType(JavaCompile).configureEach {
+		it.options.release = 25
+		// The chat messages contain a literal heart glyph; without this javac would
+		// decode the source with whatever the build machine's default charset is.
+		it.options.encoding = 'UTF-8'
+	}
 
-dependencies {
-	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	// Unobfuscated: plain `implementation`, NOT modImplementation — nothing needs
-	// remapping, and the legacy mod* configurations belong to the remap pipeline.
-	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-	// NOTE (vs the 1.21.1 template): NO fabric-mixin-compile-extensions
-	// annotationProcessor here. That AP exists to write refmaps against yarn
-	// mappings; an unobfuscated game has no mappings and needs no refmap. Mixins
-	// still work — declare them in <modid>.mixins.json with
-	// "compatibilityLevel": "JAVA_25" and target the REAL Mojang names.
-}
-
-processResources {
-	inputs.property "version", project.version
-	filesMatching("fabric.mod.json") {
-		expand "version": project.version
+	java {
+		toolchain {
+			// 25, matching options.release above, the mixin JAVA_25
+			// compatibilityLevel and fabric.mod.json's `"java": ">=25"`. Still
+			// the four places CLAUDE.md names — NeoForge has no metadata field
+			// for it, so neoforge.mods.toml adds no fifth — and changing one
+			// without the rest is still how you get a jar that compiles here
+			// and refuses to load there.
+			languageVersion = JavaLanguageVersion.of(25)
+		}
 	}
 }
 
-tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
-	// The chat messages contain a literal heart glyph; without this javac would
-	// decode the source with whatever the build machine's default charset is.
-	it.options.encoding = 'UTF-8'
-}
-
-java {
-	toolchain {
-		// 25, matching options.release above, the mixin JAVA_25 compatibilityLevel
-		// and fabric.mod.json's `"java": ">=25"`. Was pinned to 26 only because the
-		// machine had no JDK 25 to compile on; temurin-25 now covers it, so the
-		// toolchain and the bytecode target no longer disagree.
-		languageVersion = JavaLanguageVersion.of(25)
-	}
+// Collects both loader jars in one place, so "where is the build output" has a
+// single answer again now that there are two of them.
+tasks.register('collectJars', Copy) {
+	dependsOn ':fabric:build', ':neoforge:build'
+	from(project(':fabric').layout.buildDirectory.dir('libs'))
+	from(project(':neoforge').layout.buildDirectory.dir('libs'))
+	into layout.buildDirectory.dir('libs')
+	include '*.jar'
+	exclude '*-sources.jar'
 }

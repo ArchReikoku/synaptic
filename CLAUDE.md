@@ -1,88 +1,21 @@
 # Working agreement
 
-## Ask, don't act
+## Testing
 
-Do not do any of the following on your own. Ask first, and wait for a clear yes:
-
-- **Do not build.** No `./gradlew build`, no `runClient`, no compiling of any kind.
-- **Do not commit.** No `git commit`, no `git push`, no tagging.
-- **Do not test.** No launching the game, no automating the game window, no screenshots
-  of it, no summoning or command-sending to verify behaviour.
-
-Editing files, reading code, and searching are fine — those need no permission.
-
-## Testing is mine to run
-
-When a change needs verifying, **explain how to test it** and let me do it. Say what to
-run, what to look at, and what a pass looks like versus a failure. Do not run it yourself
-and report back.
-
-A change being "unverified" is the expected state when handing work over. Say so plainly
-rather than reaching for the build or the game to settle it.
-
-## Why
-
-I want to see the changes land myself, and I want control over when the game launches and
-what gets written to the repo's history.
+If the test is going to take a lot of time, don't do it in order to save my tokens.
+write in TESTING.md what should be tested manually and how, also write what you have tested und results.
 
 ---
 
 # Project notes
 
-**Synaptic** — a Fabric mod for Minecraft 26.2. One life shared across every player.
+**Synaptic** is mod for Minecraft.
 Published at https://github.com/ArchReikoku/synaptic (MIT).
-
-## Building, when asked
-
-```
-./gradlew build          # jar lands in build/libs/
-./gradlew runClient      # dev client
-```
-
-The jar is named from `mod_version` in `gradle.properties`.
 
 ### One JDK: Temurin 25
 
 **Everyone on this project builds on Eclipse Temurin 25 (LTS). Do not build on anything
-else, and do not raise or lower the number on your own machine.** Four places already
-agree on 25 and have to keep agreeing:
-
-| Where | Setting |
-| --- | --- |
-| `build.gradle` | `java.toolchain.languageVersion = 25` |
-| `build.gradle` | `options.release = 25` |
-| `src/main/resources/synaptic.mixins.json` | `"compatibilityLevel": "JAVA_25"` |
-| `src/main/resources/fabric.mod.json` | `"java": ">=25"` |
-
-Changing one without the others is how you get a jar that compiles here and refuses to
-load there, so a JDK change is a four-file change plus a word to whoever else is working
-on the mod — never a quiet local edit. Vendor is a convention, not a constraint: the
-toolchain pins the *version*, not Temurin specifically, so another 25 will build. We
-still all say Temurin so that "works on my machine" means the same machine everywhere.
-
-Getting one:
-
-- **IntelliJ** — Project Structure → SDKs → `+` → Download JDK → version 25, vendor
-  Eclipse Temurin. Then set it as the Project SDK, and as the Gradle JVM under
-  Settings → Build Tools → Gradle.
-- **Command line** — Gradle needs a JVM before it can read the build, so `JAVA_HOME`
-  must be set or `java` must be on `PATH`; a bare `./gradlew` with neither dies at the
-  launcher. On this machine:
-  `$env:JAVA_HOME = "C:\Users\magom\.jdks\temurin-25.0.4.1"` (your path will differ).
-- **Neither** — the foojay resolver in `settings.gradle` downloads a matching JDK for the
-  *compile* toolchain by itself, but it cannot help the launcher. You still need a JVM to
-  start Gradle with.
-
-After switching JDKs, run `./gradlew --stop` before building. Gradle reuses a live daemon
-regardless of which JVM it was started on, which will happily hide the fact that your new
-JDK was never exercised.
-
-**The Gradle and Loom versions are a matched pair — do not bump one alone.** Loom 1.17.20
-declares `org.gradle.plugin.api-version` 9.5.0. Gradle 9.6 removed
-`JvmVendorSpec.IBM_SEMERU`, which Loom still references, so 9.6+ dies during configuration
-before reading a single source file; Gradle 8.x is rejected by Loom's variant metadata. The
-wrapper is pinned to 9.5.0 for exactly that window.
-
+else, and do not raise or lower the number on your own machine.**
 ## Versioning
 
 Semantic versioning, `MAJOR.MINOR.PATCH`, set by `mod_version` in `gradle.properties`.

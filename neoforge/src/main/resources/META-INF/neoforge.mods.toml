@@ -1,0 +1,46 @@
+modLoader="javafml"
+loaderVersion="[3,]"
+license="MIT"
+issueTrackerURL="https://github.com/ArchReikoku/synaptic/issues"
+
+# Declared here so FML applies the mixins. Same file the Fabric jar names in
+# fabric.mod.json, and it lives in common/src/main/resources so there is only
+# ever one of it — a mixin added on one loader and not the other would be a
+# feature that silently only half exists.
+[[mixins]]
+    config="${mod_id}.mixins.json"
+
+[[mods]]
+    modId="${mod_id}"
+    version="${version}"
+    displayName="Synaptic"
+    authors="Reikoku"
+    # iconFile, not logoFile: NeoForge split the old single `logoFile` into a
+    # square `iconFile` and a wide `bannerFile`, and warns on startup about the
+    # old name. This is the same 128x128 square the Fabric jar names as its
+    # `icon`, so there is one image and it is the icon one.
+    iconFile="assets/synaptic/icon.png"
+    # MATCH_VERSION would put a red X against any server whose Synaptic version
+    # differs from the client's, and refuse nothing. This mod is built to be
+    # played with an unmodded client — the tab table, the world picker and the
+    # Next run button just do not appear, and the server says so in chat — so
+    # the connection screen is left to judge the server on its own merits.
+    displayTest="IGNORE_ALL_VERSION"
+    description='''One life, shared. Health, hunger, experience, status effects, advancements, pets, the inventory and the ender chest are pooled across everyone online — and if one player dies, everyone dies. Damage is called out in chat and heard by the whole group, hunger is split by player count, and a single sleeper skips the night. Press K in game, or use /synaptic, to switch any of it on or off.'''
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neoforge_version},)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    # Pinned to the one game version, the same way fabric.mod.json says "~26.3".
+    # The mixins target real Mojang names against this game and nothing promises
+    # they survive the next one.
+    versionRange="[${minecraft_version}]"
+    ordering="NONE"
+    side="BOTH"

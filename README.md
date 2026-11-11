@@ -1,6 +1,6 @@
 # Synaptic
 
-**One life, shared.** A Fabric mod for Minecraft 26.2 that pools health, hunger, experience,
+**One life, shared.** A Fabric **and NeoForge** mod for Minecraft 26.3 that pools health, hunger, experience,
 status effects, advancements, pets, the inventory and the ender chest across every player
 online — and if one player dies, everyone dies, then comes back together.
 
@@ -24,7 +24,7 @@ banking your own supplies while someone else starves.
 | **Experience** | Levels and XP are pooled. Orbs picked up by one player level the whole group. |
 | **Advancements** | An advancement earned by one player is granted to everyone, including recipe unlocks. |
 | **Pets** | Every tamed animal answers to everyone. Shared pets never turn on a player, and one that follows will follow whoever handled it last. |
-| **Mob Anger** | Provoke a neutral mob and it turns on the whole group, not just whoever provoked it. Only players it could already see are drawn in — someone far away is never targeted. |
+| **Mob Anger** | Provoke a neutral mob and it turns on the whole group, not just whoever provoked it. Only players it could already see are drawn in — someone far away is never targeted, and a mob angry at something that is not a player is left to settle it. |
 
 ## Extras
 
@@ -35,7 +35,7 @@ banking your own supplies while someone else starves.
 | **Damage Chat** | Announces every hit with the damage, its cause and the hearts left: `Steve took 1.5❤ damage from fall (3.5❤ left)` |
 | **Damage Sound** | Everyone hears a hurt sound when anyone is hit, however far apart you are. |
 | **Solo Sleep** | One player in a bed skips the night. |
-| **Next Run** | A Next Run button on the death screen, and in the top right of the settings screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, wipes inventories and deletes the run you came from — without anyone disconnecting. Host only. |
+| **Next Run** | A Next Run button on the death screen, and in the top right of the settings screen. Builds a fresh world with a new seed, drops everyone on the same block facing the same way, and deletes the run you came from — without anyone disconnecting. It starts the way a new world does: morning, clear sky, empty inventories, no advancements. Host only. |
 | **Death Report** | Replaces the death screen with the run's obituary: whose death ended it and how, and the session totals for everyone. Vanilla's buttons move to a row in the corner. |
 | **Session Tab** | Replaces the player list with session totals — damage dealt and taken, meals, hunger spent, XP earned, advancements unlocked and deaths caused — for everyone who has joined. Kept across world resets; offline players stay listed, dimmed. |
 | **Tool Swap Mining** | Mining progress survives a change of held item — see the note below. |
@@ -59,7 +59,16 @@ where there is no host sitting at the game, it is operators instead.
 
 ## Installing
 
-- **Minecraft 26.2**, **Fabric Loader 0.19.3+**, **Fabric API**, **Java 25+**
+One mod, two jars — take the one that matches your loader. They are the same mod and
+behave the same; a Fabric client and a NeoForge client cannot join the same server, but
+that was already true of the loaders themselves.
+
+| Loader | Jar | Also needs |
+|---|---|---|
+| **Fabric** | `synaptic-fabric-<version>.jar` | Fabric Loader 0.19.3+, **Fabric API** for 26.3 |
+| **NeoForge** | `synaptic-neoforge-<version>.jar` | NeoForge 26.3.0.16-beta+ |
+
+- **Minecraft 26.3** and **Java 25+** either way.
 - Drop the jar in `mods/`.
 
 Almost everything runs server-side, so on a multiplayer server the mod only strictly needs
@@ -97,10 +106,29 @@ the client's side of the story. The server's lines are in the server's log.
 ## Building
 
 ```
-./gradlew build
+./gradlew collectJars
 ```
 
-The jar lands in `build/libs/`. Requires a JDK 25+.
+Builds both loaders and gathers the two jars into `build/libs/`. Requires a JDK 25+.
+
+To build one at a time:
+
+```
+./gradlew :fabric:build     # fabric/build/libs/
+./gradlew :neoforge:build   # neoforge/build/libs/
+```
+
+The source lives in three places. `common/` holds everything that only needs vanilla
+Minecraft, which is nearly all of it; `fabric/` and `neoforge/` hold the entrypoints, the
+event wiring and the networking calls, and nothing else. `common/` compiles on its own
+against a plain Minecraft jar with no loader on the classpath —
+
+```
+./gradlew :common:build
+```
+
+— which is what stops loader-specific code drifting into shared code: if it compiles
+there, both jars can use it.
 
 ## License
 
