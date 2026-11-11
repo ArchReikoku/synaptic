@@ -26,6 +26,18 @@ import net.minecraft.server.permissions.Permissions;
  * the only authoritative one. Clients may ask for a change; the server decides.
  */
 public final class SynapticNetworking {
+    /**
+     * The wire format's version. <b>Bump it whenever a payload's shape changes,
+     * the {@code Feature} enum included</b> — settings travel as a bitmask of its
+     * ordinals.
+     * <p>
+     * Checked twice: NeoForge compares it in the loader's own handshake and
+     * refuses the connection, and on both loaders the client compares it against
+     * the one sent in {@link ConfigSyncPayload} and disconnects itself. Kept here
+     * rather than in either loader so the two jars cannot carry different numbers.
+     */
+    public static final int PROTOCOL = 2;
+
     /** Seconds each player has been connected, for the unmodded check below. */
     private static final Map<UUID, Integer> connectedFor = new HashMap<>();
     private static final Set<UUID> warnedUnmodded = new HashSet<>();
@@ -72,6 +84,14 @@ public final class SynapticNetworking {
         // so it is the host's call and nobody else's.
         if (!canConfigure(player)) {
             player.sendSystemMessage(Component.literal("Only the host can start the next run.")
+                .withStyle(ChatFormatting.RED));
+            return;
+        }
+        // The button is hidden while the feature is off, but the server is the
+        // one that has to say no: a request that arrives anyway would open a
+        // picker the setting says should not exist.
+        if (!SynapticConfig.enabled(Feature.RUN_RESET)) {
+            player.sendSystemMessage(Component.literal("Next Run is switched off in the Synaptic settings.")
                 .withStyle(ChatFormatting.RED));
             return;
         }
@@ -227,7 +247,7 @@ public final class SynapticNetworking {
 
     /** Built per player: the settings are the same for everyone, the permission is not. */
     private static ConfigSyncPayload syncFor(ServerPlayer player) {
-        return new ConfigSyncPayload(SynapticConfig.bits(), canConfigure(player));
+        return new ConfigSyncPayload(PROTOCOL, SynapticConfig.bits(), canConfigure(player));
     }
 
     private static void broadcast(MinecraftServer server) {

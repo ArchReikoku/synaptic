@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 
 import com.synaptic.config.Feature;
 import com.synaptic.config.SynapticConfig;
@@ -28,6 +29,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.Container;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -92,6 +94,12 @@ public final class SynapticMod {
     private static long serverTick;
     private static boolean sharingAdvancement;
     private static MinecraftServer currentServer;
+    /**
+     * The one player whose body does the group's healing. See
+     * {@link #healsForGroup}. Volatile because the mixins asking about it run
+     * wherever the player is ticked, which is not promised to be this thread.
+     */
+    private static volatile UUID healer;
 
     /** How many ways the hunger cost of moving around is split. See FoodDataMixin. */
     public static int sharedPlayerCount() {
@@ -182,6 +190,7 @@ public final class SynapticMod {
         cascadingDeath = false;
         cascadingRespawn = false;
         sharingAdvancement = false;
+        healer = null;
         serverTick = 0;
         tick = 0;
     }
@@ -343,6 +352,7 @@ public final class SynapticMod {
         RunManager.settleDeaths(server);
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         playerCount = players.size();
+        healer = chooseHealer(players);
         if (players.isEmpty()) {
             lastStates.clear();
             lastInventories.clear();
@@ -413,6 +423,42 @@ public final class SynapticMod {
         if (alreadyPaid != null && alreadyPaid == serverTick) return false;
         sharedDamageTick.put(signature, serverTick);
         return true;
+    }
+
+    /**
+     * Whether this player's own regeneration should reach the shared bar.
+     * <p>
+     * The healing half of the poison problem. With health pooled and every gain
+     * summed, each player's body healing itself counts in full: natural
+     * regeneration runs on every player's own timer, and a shared Regeneration
+     * effect ticks on every one of them at once — so four players healed four
+     * times as fast as one. Only one player, the healer, now regenerates; the
+     * rest leave it to them, and the bar fills at one player's rate.
+     * <p>
+     * Natural regeneration is only taken over while hunger is shared too.
+     * Without that, each player is paying for their own healing out of their own
+     * food, which is a real cost per player and fair to sum.
+     *
+     * @param effect true for the Regeneration effect, false for food-driven
+     *               regeneration
+     */
+    public static boolean healsForGroup(ServerPlayer player, boolean effect) {
+        if (!SynapticConfig.enabled(Feature.HEALTH)) return true;
+        if (!SynapticConfig.enabled(effect ? Feature.EFFECTS : Feature.HUNGER)) return true;
+        UUID chosen = healer;
+        return chosen == null || chosen.equals(player.getUUID());
+    }
+
+    /**
+     * The first player able to heal at all. Spectators and the dead are passed
+     * over: the first never regenerates, and the second would leave the group
+     * with nobody healing until they respawned.
+     */
+    private static UUID chooseHealer(List<ServerPlayer> players) {
+        for (ServerPlayer player : players) {
+            if (player.isAlive() && !player.isSpectator()) return player.getUUID();
+        }
+        return null;
     }
 
     /**
@@ -820,16 +866,8 @@ public final class SynapticMod {
     }
 
     private static void applyEnderChestChangesFromEveryone(List<ServerPlayer> players) {
-        for (ServerPlayer player : players) {
-            InventorySnapshot previous = lastInventories.get(player.getUUID());
-            if (previous == null) continue;
-            for (int slot = 0; slot < ENDER_CHEST_SLOTS; slot++) {
-                ItemStack current = player.getEnderChestInventory().getItem(slot);
-                if (!ItemStack.matches(current, previous.enderChest[slot])) {
-                    sharedEnderChest[slot] = current.copy();
-                }
-            }
-        }
+        mergeSlots(sharedEnderChest, ENDER_CHEST_SLOTS, ENDER_CHEST_SLOTS, players,
+            ServerPlayer::getEnderChestInventory, InventorySnapshot::enderChest);
     }
 
     private static boolean sameEnderChest(ServerPlayer left, ServerPlayer right) {
@@ -843,17 +881,99 @@ public final class SynapticMod {
     }
 
     private static void applyInventoryChangesFromEveryone(List<ServerPlayer> players) {
-        for (ServerPlayer player : players) {
-            InventorySnapshot previous = lastInventories.get(player.getUUID());
-            if (previous == null) continue; // joining players receive the shared state
-            Inventory inventory = player.getInventory();
-            for (int slot = 0; slot < SHARED_INVENTORY_SLOTS; slot++) {
-                ItemStack current = inventory.getItem(slot);
-                if (!ItemStack.matches(current, previous.items[slot])) {
-                    sharedInventory[slot] = current.copy();
+        // Overflow spills into the 36 main slots only: armour and the offhand
+        // are not somewhere a stray stack of cobblestone should land.
+        mergeSlots(sharedInventory, SHARED_INVENTORY_SLOTS, 36, players,
+            ServerPlayer::getInventory, InventorySnapshot::items);
+    }
+
+    /**
+     * Fold every player's changes to a shared container into the pool.
+     * <p>
+     * Every player started the tick holding an identical copy of the pool, so
+     * each one's change is measured against the same starting stack. Copying the
+     * changed stack over the pool — which is what this used to do — let the last
+     * player in the list overwrite everybody else's change to the same slot:
+     * <ul>
+     * <li>two players each placing a block from a stack of 64 both showed 63,
+     * the pool became 63, and two blocks had cost one;</li>
+     * <li>two players picking up different things into the same empty slot kept
+     * only one of them.</li>
+     * </ul>
+     * So changes to the item already in the slot are added up as counts, and
+     * anything new that arrives is gathered rather than overwritten. Whatever
+     * the slot cannot hold goes to a free slot, and failing that onto the floor
+     * at the feet of the player whose change it was — it exists in their copy,
+     * so dropping it is the honest answer, not deleting it.
+     * <p>
+     * Not covered: two players wearing down the same tool in one tick. Damage is
+     * a component, so the two changed copies are different items and the last
+     * one wins; the tool loses one use rather than two.
+     *
+     * @param slots      how many slots of the container are shared
+     * @param spillSlots how many slots, from the first, overflow may go into
+     */
+    private static void mergeSlots(ItemStack[] pool, int slots, int spillSlots, List<ServerPlayer> players,
+                                   Function<ServerPlayer, Container> container,
+                                   Function<InventorySnapshot, ItemStack[]> before) {
+        List<Spill> spills = new ArrayList<>();
+        for (int slot = 0; slot < slots; slot++) {
+            ItemStack previous = null;
+            int delta = 0;
+            ItemStack incoming = ItemStack.EMPTY;
+            ServerPlayer incomingFrom = null;
+            ServerPlayer changedBy = null;
+            for (ServerPlayer player : players) {
+                InventorySnapshot snapshot = lastInventories.get(player.getUUID());
+                if (snapshot == null) continue; // joining players receive the shared state
+                ItemStack was = before.apply(snapshot)[slot];
+                ItemStack now = container.apply(player).getItem(slot);
+                if (ItemStack.matches(now, was)) continue;
+                previous = was;
+                changedBy = player;
+                if (!was.isEmpty() && (now.isEmpty() || ItemStack.isSameItemSameComponents(now, was))) {
+                    // More or less of what was already there.
+                    delta += now.getCount() - was.getCount();
+                    continue;
+                }
+                // Something else is in the slot now. Whatever was there before
+                // left it, as far as this player is concerned.
+                if (!was.isEmpty()) delta -= was.getCount();
+                if (incoming.isEmpty()) {
+                    incoming = now.copy();
+                    incomingFrom = player;
+                } else if (ItemStack.isSameItemSameComponents(incoming, now)) {
+                    incoming.grow(now.getCount());
+                } else {
+                    spills.add(new Spill(player, now.copy()));
                 }
             }
+            if (changedBy == null) continue;
+
+            int remaining = previous.getCount() + delta;
+            if (!previous.isEmpty() && remaining > 0) {
+                // The original item is still there, so it keeps the slot and
+                // anything that arrived alongside it is put elsewhere.
+                pool[slot] = capped(previous.copyWithCount(remaining), changedBy, spills);
+                if (!incoming.isEmpty()) spills.add(new Spill(incomingFrom, incoming));
+            } else if (!incoming.isEmpty()) {
+                pool[slot] = capped(incoming, incomingFrom, spills);
+            } else {
+                pool[slot] = ItemStack.EMPTY;
+            }
         }
+        for (Spill spill : spills) {
+            ItemStack left = addToPool(pool, spillSlots, spill.stack());
+            if (!left.isEmpty()) spill.owner().spawnAtLocation(spill.owner().level(), left);
+        }
+    }
+
+    /** Trim a stack to what one slot holds, setting the rest aside to be spilled. */
+    private static ItemStack capped(ItemStack stack, ServerPlayer owner, List<Spill> spills) {
+        int max = stack.getMaxStackSize();
+        if (stack.getCount() <= max) return stack;
+        spills.add(new Spill(owner, stack.copyWithCount(stack.getCount() - max)));
+        return stack.copyWithCount(max);
     }
 
     private static void initializeSharedEffects(List<ServerPlayer> players) {
@@ -946,9 +1066,12 @@ public final class SynapticMod {
         addToPool(sharedInventory, 36, incoming);
     }
 
-    /** Merge a stack into a pool, combining with matching stacks before taking a free slot. */
-    private static void addToPool(ItemStack[] pool, int slots, ItemStack incoming) {
-        if (incoming.isEmpty()) return;
+    /**
+     * Merge a stack into a pool, combining with matching stacks before taking a
+     * free slot. Answers whatever did not fit.
+     */
+    private static ItemStack addToPool(ItemStack[] pool, int slots, ItemStack incoming) {
+        if (incoming.isEmpty()) return ItemStack.EMPTY;
         ItemStack remaining = incoming.copy();
         for (int slot = 0; slot < slots && !remaining.isEmpty(); slot++) {
             ItemStack existing = pool[slot];
@@ -966,6 +1089,7 @@ public final class SynapticMod {
                 remaining.shrink(moved);
             }
         }
+        return remaining;
     }
 
     private static boolean sameInventory(ServerPlayer left, ServerPlayer right) {
@@ -999,6 +1123,8 @@ public final class SynapticMod {
                                int xpLevel, float xpProgress, int xpTotal) {}
     private record InventorySnapshot(ItemStack[] items, ItemStack[] enderChest) {}
     private record DamageReport(UUID victim, String name, float damage, String cause) {}
+    /** Items a shared slot had no room for, and whose copy they came out of. */
+    private record Spill(ServerPlayer owner, ItemStack stack) {}
 
     /** A death recorded, waiting for the tick to finish before it is published. */
     private record PendingWipe(UUID victim, String name, String cause) {}

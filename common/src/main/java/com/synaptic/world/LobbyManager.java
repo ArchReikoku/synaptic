@@ -165,7 +165,9 @@ public final class LobbyManager {
      * caught up by the tick, which walks anybody not already touring.
      */
     public static void greet(ServerPlayer player) {
-        if (!SynapticConfig.enabled(Feature.RUN_RESET)) {
+        // Only when there is no lobby: one still open is finished whatever the
+        // setting says now, and someone arriving into it needs telling so.
+        if (!open && !SynapticConfig.enabled(Feature.RUN_RESET)) {
             Platform.get().send(player, new LobbyStatePayload(LobbyStatePayload.CLOSED,
                 grid, 0, SessionStats.session(), SessionStats.run() + 1, false));
             return;
@@ -428,7 +430,11 @@ public final class LobbyManager {
      * twice costs nothing.
      */
     public static void tick(MinecraftServer server) {
-        if (!SynapticConfig.enabled(Feature.RUN_RESET)) return;
+        // The setting stops a lobby from opening, never one already open. A
+        // picker left open with nothing ticking it holds everybody in spectator
+        // and freezes every shared value, since the main tick stands down while
+        // a lobby is up — switching Next Run off mid-pick used to do exactly that.
+        if (!open && !SynapticConfig.enabled(Feature.RUN_RESET)) return;
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         if (players.isEmpty()) return;
 

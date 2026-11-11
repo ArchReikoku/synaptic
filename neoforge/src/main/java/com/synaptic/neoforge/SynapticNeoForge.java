@@ -53,7 +53,7 @@ public final class SynapticNeoForge {
      * wire format is not allowed to drift silently — enforced here by the loader
      * rather than by remembering.
      */
-    private static final String PROTOCOL = "1";
+    private static final String PROTOCOL = String.valueOf(SynapticNetworking.PROTOCOL);
 
     public SynapticNeoForge(IEventBus modBus, ModContainer container) {
         // First, before anything reads a config path or sends a packet.

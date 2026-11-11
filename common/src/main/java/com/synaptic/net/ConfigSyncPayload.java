@@ -15,12 +15,18 @@ import net.minecraft.resources.Identifier;
  * a singleplayer world configure it, while the client greyed the buttons out
  * because it only asked about operator permission — and a rule written twice is a
  * rule that disagrees with itself eventually.
+ * <p>
+ * Carries the server's {@link SynapticNetworking#PROTOCOL} first, ahead of
+ * anything whose shape could change, so that a client of any later version can
+ * still read it and refuse a server it cannot understand. Fabric has no loader
+ * check of its own; this is it.
  */
-public record ConfigSyncPayload(int bits, boolean editable) implements CustomPacketPayload {
+public record ConfigSyncPayload(int protocol, int bits, boolean editable) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<ConfigSyncPayload> TYPE =
         new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("synaptic", "config_sync"));
 
     public static final StreamCodec<ByteBuf, ConfigSyncPayload> CODEC = StreamCodec.composite(
+        ByteBufCodecs.VAR_INT, ConfigSyncPayload::protocol,
         ByteBufCodecs.VAR_INT, ConfigSyncPayload::bits,
         ByteBufCodecs.BOOL, ConfigSyncPayload::editable,
         ConfigSyncPayload::new);

@@ -6,10 +6,12 @@ import com.synaptic.net.CaptureFramePayload;
 import com.synaptic.net.ConfigSyncPayload;
 import com.synaptic.net.LobbyStatePayload;
 import com.synaptic.net.StatsSyncPayload;
+import com.synaptic.net.SynapticNetworking;
 import com.synaptic.net.WipeReportPayload;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 
 /**
  * Everything the client does that is not a screen: what to do with each payload
@@ -41,6 +43,19 @@ public final class SynapticClient {
      * the client-side features always read the values actually in force.
      */
     public static void onConfigSync(ConfigSyncPayload payload) {
+        // A server on another protocol sends a bitmask whose bits mean other
+        // features, and payloads this client would misread. Leaving is the only
+        // safe answer, and saying why beats a game that quietly misbehaves.
+        if (payload.protocol() != SynapticNetworking.PROTOCOL) {
+            var connection = Minecraft.getInstance().getConnection();
+            if (connection != null) {
+                connection.getConnection().disconnect(Component.literal(
+                    "Synaptic version mismatch: the server speaks protocol " + payload.protocol()
+                        + ", this client speaks " + SynapticNetworking.PROTOCOL
+                        + ". Install the same Synaptic version as the server."));
+            }
+            return;
+        }
         SynapticConfig.apply(payload.bits());
         SynapticConfig.setEditable(payload.editable());
     }

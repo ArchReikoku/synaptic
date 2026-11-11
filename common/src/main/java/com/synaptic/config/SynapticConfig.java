@@ -2,12 +2,13 @@ package com.synaptic.config;
 
 import java.io.IOException;
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Properties;
 
 import com.synaptic.platform.Platform;
+import com.synaptic.report.AtomicFiles;
 import com.synaptic.report.SynapticLog;
 
 /**
@@ -83,6 +84,15 @@ public final class SynapticConfig {
         return value;
     }
 
+    /**
+     * The name a feature is filed under. Lower-cased in the root locale, not the
+     * machine's: in Turkish "SPLIT" lower-cases to "splıt" with a dotless i, so a
+     * file written on one machine would not be read back on another.
+     */
+    private static String key(Feature feature) {
+        return feature.name().toLowerCase(Locale.ROOT);
+    }
+
     private static Path configFile() {
         return Platform.get().configDir().resolve(FILE_NAME);
     }
@@ -103,7 +113,7 @@ public final class SynapticConfig {
         }
         int loaded = 0;
         for (Feature feature : Feature.values()) {
-            String value = properties.getProperty(feature.name().toLowerCase());
+            String value = properties.getProperty(key(feature));
             // A key that is not there is a feature added since this file was
             // written, so it takes its own default rather than being assumed on.
             boolean on = value == null ? feature.enabledByDefault() : Boolean.parseBoolean(value);
@@ -115,14 +125,11 @@ public final class SynapticConfig {
     public static void save() {
         Properties properties = new Properties();
         for (Feature feature : Feature.values()) {
-            properties.setProperty(feature.name().toLowerCase(), String.valueOf(enabled(feature)));
+            properties.setProperty(key(feature), String.valueOf(enabled(feature)));
         }
         Path path = configFile();
         try {
-            Files.createDirectories(path.getParent());
-            try (Writer writer = Files.newBufferedWriter(path)) {
-                properties.store(writer, "Synaptic — feature toggles (in-game: press K)");
-            }
+            AtomicFiles.writeProperties(path, properties, "Synaptic — feature toggles (in-game: press K)");
         } catch (IOException e) {
             LOGGER.warn("Could not write {}", path, e);
         }

@@ -157,12 +157,12 @@ across one.** Settings travel between client and server as a bitmask of enum ord
 jar whose `Feature` order differs reads the other side's settings as nonsense. The config
 file is keyed by name and survives reordering; the wire format does not.
 
-On NeoForge the loader will now catch that for you: `SynapticNeoForge.PROTOCOL` is compared
-between the two ends and a mismatch refuses the connection outright, which is a far better
-failure than a garbled bitmask. **Bump `PROTOCOL` whenever a payload's shape changes,
-`Feature` included.** Fabric has no equivalent and still relies on the rule above, so the
-two jars are only as safe as the weaker of them — the bump is not optional just because one
-side would have noticed.
+Both jars now catch that for you, from one number: `SynapticNetworking.PROTOCOL` in
+`common`. NeoForge compares it in the loader's own handshake and refuses the connection; on
+both loaders the client also compares it against the one the server puts first in
+`ConfigSyncPayload` and disconnects itself with a message naming both numbers. **Bump
+`PROTOCOL` whenever a payload's shape changes, `Feature` included.** The check only
+protects you if the number moves — a forgotten bump is a garbled bitmask again.
 
 ## Things that bit us before
 

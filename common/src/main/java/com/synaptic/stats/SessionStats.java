@@ -2,7 +2,6 @@ package com.synaptic.stats;
 
 import java.io.IOException;
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -17,6 +16,7 @@ import java.util.UUID;
 import com.synaptic.net.StatsSyncPayload;
 import com.synaptic.net.WipeReportPayload;
 import com.synaptic.platform.Platform;
+import com.synaptic.report.AtomicFiles;
 import com.synaptic.report.SynapticLog;
 
 import net.minecraft.server.MinecraftServer;
@@ -436,7 +436,7 @@ public final class SessionStats {
         } else {
             session = allocate();
             try {
-                Files.writeString(marker, Integer.toString(session));
+                AtomicFiles.writeString(marker, Integer.toString(session));
             } catch (IOException e) {
                 // Not fatal, but worth saying: without the marker this save will
                 // be handed a fresh number every time it loads.
@@ -481,8 +481,7 @@ public final class SessionStats {
             }
         }
         try {
-            Files.createDirectories(counter.getParent());
-            Files.writeString(counter, Integer.toString(next + 1));
+            AtomicFiles.writeString(counter, Integer.toString(next + 1));
         } catch (IOException e) {
             LOGGER.warn("Could not write {}", counter, e);
         }
@@ -637,10 +636,7 @@ public final class SessionStats {
         }
         Path path = file();
         try {
-            Files.createDirectories(path.getParent());
-            try (Writer writer = Files.newBufferedWriter(path)) {
-                properties.store(writer, "Synaptic — totals for world " + session);
-            }
+            AtomicFiles.writeProperties(path, properties, "Synaptic — totals for world " + session);
             dirty = false;
         } catch (IOException e) {
             LOGGER.warn("Could not write {}", path, e);
