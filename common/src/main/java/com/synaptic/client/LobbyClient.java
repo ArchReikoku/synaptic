@@ -93,6 +93,20 @@ public final class LobbyClient {
         return mayPick;
     }
 
+    /**
+     * Whether the lobby has hold of this player — touring or at the grid.
+     * <p>
+     * While it does, the player cannot move, turn, or use a keybind, and other
+     * players are not drawn. The server parks everyone on the same block in
+     * every candidate and photographs what they see, so a player who drifts,
+     * turns, flips to third person or opens the spectator teleport menu in the
+     * few ticks the loading screen is down spoils their own tile. Spectators see
+     * each other, so anyone else standing in the shot is in the tile too.
+     */
+    public static boolean active() {
+        return state != LobbyStatePayload.CLOSED;
+    }
+
     /** How many tiles have been photographed, for the loading bar. */
     public static int captured() {
         return captured;

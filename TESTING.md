@@ -1,3 +1,45 @@
+# Testing the lobby lock (no movement, other players invisible)
+
+Not committed, and `mod_version` not bumped. This is a client-side change, so the client needs the new jar. The network protocol is unchanged.
+
+**What changed:** while the seed lobby holds a player (`LobbyClient.active()`, meaning touring or at the grid), four new client mixins apply:
+
+| Mixin | Target | Effect |
+| --- | --- | --- |
+| `LobbyInputMixin` | `KeyboardInput.tick` (TAIL) | No walking, flying, rising or sinking |
+| `LobbyMouseMixin` | `MouseHandler.turnPlayer` (cancel) | The camera does not turn |
+| `LobbyKeybindMixin` | `Minecraft.handleKeybinds` (cancel) | No hotbar or spectator teleport menu, no attacking into an entity's view, no F5, no chat or inventory keys |
+| `LobbyPlayerRenderMixin` | `EntityRenderDispatcher.shouldRender` | Other players are not drawn: no body, head, name tag or shadow |
+
+## What I tested myself, and the results
+
+| Check | Command / method | Result |
+| --- | --- | --- |
+| Shared code builds | `./gradlew :common:build` | ✅ Pass |
+| Fabric and NeoForge compile | `:fabric:compileJava :neoforge:compileJava` | ✅ Pass |
+| All four target methods exist with these signatures | `javap -p` on Fabric's `minecraft-merged.jar` and NeoForge's `minecraft-patched-26.3.0.102-merged.jar` | ✅ Identical on both |
+| Mouse deltas don't pile up while locked | `javap -c MouseHandler` | ✅ `turnPlayer` doesn't reset the accumulators; its caller does. So skipping it discards the movement, and the camera won't jump on unlock. |
+
+I did not test anything in-game.
+
+## How you should test
+
+You need **two clients** on one world, because invisibility only shows with someone else there. Do it on Fabric and again on NeoForge.
+
+1. **Mixins apply.** Join a world. **Pass:** no `Mixin apply failed` mentioning `Lobby*Mixin` in the log.
+2. **Movement lock.** Press Next run. While the tour runs, hold W, Space and Shift and move the mouse, especially in the moment the loading screen drops for a shot.
+   - **Pass:** the view never moves, and every tile faces the same way.
+3. **Spectator escapes.** During the tour, and after closing the grid with Esc if it allows that, press 1–9, middle-click, left-click a mob, and press F5.
+   - **Pass:** nothing happens. No spectator menu, no third person, no entity view.
+4. **Invisibility.** With both clients touring, compare the tiles. Check the host's tiles in particular, since they're shot from a block above everyone else.
+   - **Pass:** no heads, bodies or name tags in any tile, and none visible on the grid's backdrop.
+5. **Released afterwards.** Pick a world, and separately cancel back to a run.
+   - **Pass:** you can move, look and use keys at once. Other players are visible again. No key stays stuck down.
+6. **Disconnect mid-tour.** Leave mid-tour and join another world.
+   - **Pass:** you aren't frozen there. `LobbyClient.reset()` sets the state back to closed.
+
+---
+
 # Testing the loader update (NeoForge 26.3.0.102, Fabric Loader 0.20.1)
 
 Minecraft stays on 26.3. Nothing is committed, and `mod_version` has not been bumped.

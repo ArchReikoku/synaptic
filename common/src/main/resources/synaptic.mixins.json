@@ -23,7 +23,11 @@
     "PlayerTabOverlayMixin",
     "HudTabListMixin",
     "DeathScreenMixin",
-    "PauseScreenMixin"
+    "PauseScreenMixin",
+    "LobbyInputMixin",
+    "LobbyMouseMixin",
+    "LobbyKeybindMixin",
+    "LobbyPlayerRenderMixin"
   ],
   "injectors": {
     "defaultRequire": 1
