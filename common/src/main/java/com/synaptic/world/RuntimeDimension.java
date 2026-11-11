@@ -24,8 +24,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.storage.DerivedLevelData;
 
 /**
@@ -44,8 +46,25 @@ import net.minecraft.world.level.storage.DerivedLevelData;
  */
 public final class RuntimeDimension {
     private static final SynapticLog LOGGER = SynapticLog.get();
-    /** How far out to look for dry land before giving up, in chunks. */
-    private static final int SPAWN_SEARCH_CHUNKS = 6;
+    /**
+     * Rings of chunks around the origin that are always tried in full,
+     * regardless of what the noise says. A small island or a riverbank can fall
+     * between the noise samples, and these chunks get generated anyway the
+     * moment anybody arrives.
+     */
+    private static final int SPAWN_NEAR_RINGS = 1;
+    /**
+     * How far out to look for dry land, in chunks. The noise check is cheap, so
+     * this can be wide. 64 chunks is a thousand blocks, past the far shore of
+     * all but the biggest oceans.
+     */
+    private static final int SPAWN_SEARCH_CHUNKS = 64;
+    /**
+     * At most this many chunks are generated in full to confirm what the noise
+     * suggested. Generating is the expensive part, and the noise is rarely wrong
+     * by more than a few chunks.
+     */
+    private static final int SPAWN_GENERATE_LIMIT = 16;
     /** Read by ServerLevelSeedMixin during the level constructor. See there. */
     private static volatile Long pending;
 
@@ -71,6 +90,39 @@ public final class RuntimeDimension {
      */
     public static ServerLevel create(MinecraftServer server, String name, long seed) {
         return create(server, name, seed, LevelStem.OVERWORLD);
+    }
+
+    /**
+     * Build a brand-new level, clearing out anything left on disk under its name
+     * first.
+     * <p>
+     * {@link #create} opens whatever folder the name points at. That is right
+     * when rebuilding a run after a restart, and wrong for a new world. Chunks
+     * left there by an earlier world of the same name are loaded as they are,
+     * and only the chunks around them are generated from the new seed. The
+     * result is a patch of one world set into another, with sheer walls along
+     * the chunk borders where the two meet. That happened whenever a name was
+     * handed out a second time, for example a world prepared before a restart.
+     */
+    public static ServerLevel createFresh(MinecraftServer server, String name, long seed) {
+        return createFresh(server, name, seed, LevelStem.OVERWORLD);
+    }
+
+    public static ServerLevel createFresh(MinecraftServer server, String name, long seed,
+                                          ResourceKey<LevelStem> flavour) {
+        MinecraftServerAccessor access = (MinecraftServerAccessor) server;
+        ResourceKey<Level> key = key(name);
+        // A live level under this name is never wiped: its files are in use, and
+        // create hands it back unchanged anyway. Callers check for this first.
+        if (!access.synaptic$levels().containsKey(key)) {
+            Path path = access.synaptic$storageSource().getDimensionPath(key);
+            if (Files.exists(path)) {
+                LOGGER.warn("{} already has files on disk from an earlier world, clearing them",
+                    key.identifier());
+                deleteFiles(path);
+            }
+        }
+        return create(server, name, seed, flavour);
     }
 
     /**
@@ -132,10 +184,10 @@ public final class RuntimeDimension {
      * the water — vanilla never spawns a new world that way, and neither should
      * a run.
      * <p>
-     * Chunks are tried in a square spiral out from the origin, which generates
-     * them as it goes, so the first call for a run is the slow one. If a whole
-     * spiral of ocean turns up nothing, the origin is used regardless: a wet
-     * start beats a run that will not begin.
+     * A seed whose origin is water is kept, and the spawn moves to the nearest
+     * dry land instead. See {@link #findSpawn}. Only if there is no land within
+     * a thousand blocks is the origin used regardless: a wet start beats a run
+     * that will not begin.
      */
     public static BlockPos spawn(ServerLevel level) {
         BlockPos found = findSpawn(level);
@@ -147,20 +199,35 @@ public final class RuntimeDimension {
     }
 
     /**
-     * Dry land near the origin, or nothing.
+     * The nearest dry land to the origin, or nothing.
      * <p>
-     * Nothing is a real answer here, and the reason this is separate from
-     * {@link #spawn}: a caller choosing between seeds wants to hear that this one
-     * is all ocean so it can throw the world away, not be handed the middle of
-     * the sea as a compromise.
+     * Each spot is confirmed by the game's own search, the one that places a new
+     * world's spawn and refuses anything standing in liquid. That search
+     * generates the chunk it looks at, and generating every chunk across an ocean
+     * is what made a wet seed slow. So beyond the first ring, chunks are judged
+     * by the terrain noise first. That says how high the ground will be without
+     * building anything, and only chunks whose ground clears sea level are
+     * generated to be checked properly.
      * <p>
-     * The search is the game's own — the same one that places a new world's
-     * spawn, which refuses anything standing in liquid. Chunks are tried in a
-     * square spiral out from the origin, generating them as it goes, so an ocean
-     * seed is the expensive one to rule out.
+     * Chunks are tried nearest ring first, so the first one that passes is the
+     * nearest dry land, or close to it.
      */
     public static BlockPos findSpawn(ServerLevel level) {
+        ChunkGenerator generator = level.getChunkSource().getGenerator();
+        RandomState noise = level.getChunkSource().randomState();
+        int seaLevel = generator.getSeaLevel();
+        int generated = 0;
         for (ChunkPos chunk : spiral(SPAWN_SEARCH_CHUNKS)) {
+            boolean near = Math.max(Math.abs(chunk.x()), Math.abs(chunk.z())) <= SPAWN_NEAR_RINGS;
+            if (!near) {
+                // OCEAN_FLOOR_WG ignores water, so ground above sea level here
+                // means no water standing on it.
+                int ground = generator.getBaseHeight(chunk.getMiddleBlockX(), chunk.getMiddleBlockZ(),
+                    Heightmap.Types.OCEAN_FLOOR_WG, level, noise);
+                if (ground <= seaLevel) continue;
+                if (generated >= SPAWN_GENERATE_LIMIT) break;
+                generated++;
+            }
             BlockPos found = PlayerSpawnFinder.getSpawnPosInChunk(level, chunk);
             if (found != null) return found;
         }
@@ -221,7 +288,13 @@ public final class RuntimeDimension {
             LOGGER.warn("could not close {}", key.identifier(), e);
         }
 
-        Path path = access.synaptic$storageSource().getDimensionPath(key);
+        deleteFiles(access.synaptic$storageSource().getDimensionPath(key));
+        LOGGER.info("destroyed dimension {}", key.identifier());
+    }
+
+    /** Delete a dimension's folder and everything in it. A folder that is not there is fine. */
+    private static void deleteFiles(Path path) {
+        if (!Files.exists(path)) return;
         try (var walk = Files.walk(path)) {
             walk.sorted(Comparator.reverseOrder()).forEach(entry -> {
                 try {
@@ -233,6 +306,5 @@ public final class RuntimeDimension {
         } catch (IOException e) {
             LOGGER.warn("could not walk {}", path, e);
         }
-        LOGGER.info("destroyed dimension {}", key.identifier());
     }
 }

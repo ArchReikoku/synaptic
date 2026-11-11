@@ -61,8 +61,8 @@ public final class LobbyManager {
      */
     private static final int ACK_TIMEOUT = 400;
     private static final float VIEW_YAW = 0.0F;
-    /** How many seeds to try for one tile before settling for whatever came last. */
-    private static final int SEED_ATTEMPTS = 8;
+    /** How many names to try for one tile if the first is somehow already a live dimension. */
+    private static final int NAME_ATTEMPTS = 8;
     /**
      * Ticks between building one candidate ahead of time.
      * <p>
@@ -150,9 +150,10 @@ public final class LobbyManager {
         heldSky = null;
         preparedGrid = 0;
         prepareTick = 0;
-        // Carried across restarts rather than restarted, because the names it
-        // makes outlive the server that made them.
-        batch = SessionStats.batch();
+        // A new number, not the saved one. Worlds prepared last time were named
+        // from the saved number, and their folders are still on disk. Reusing it
+        // built a new world on top of the old one's chunks.
+        batch = SessionStats.nextBatch();
     }
 
     /**
@@ -361,28 +362,21 @@ public final class LobbyManager {
         batch = SessionStats.nextBatch();
     }
 
-    /**
-     * Roll seeds for one tile until one of them has dry land to stand on.
-     * <p>
-     * A world whose origin is open ocean is not a world anybody wants to be
-     * handed, so it is thrown away and another seed tried rather than dropped
-     * into the sea — which is what the old fallback did, and why runs still
-     * started in the water.
-     * <p>
-     * Each rejected world is deleted before the next is built, so a run of bad
-     * luck does not leave a pile of abandoned oceans in the save. If every
-     * attempt is wet the last is taken anyway: a soggy start beats a lobby with
-     * a hole in it.
-     */
     private static void addCandidate(MinecraftServer server, int slot) {
         Candidate candidate = buildCandidate(server, "candidate_" + batch + "_" + slot);
         if (candidate != null) candidates.add(candidate);
     }
 
+    /**
+     * Build one tile's world on a fresh seed.
+     * <p>
+     * Whatever seed comes up is kept. A world whose origin is water is not
+     * thrown away and rolled again. Its spawn moves to the nearest dry land
+     * instead, which is what {@link RuntimeDimension#spawn} finds.
+     */
     private static Candidate buildCandidate(MinecraftServer server, String base) {
-        ServerLevel fallback = RunManager.currentLevel(server);
-        for (int attempt = 0; attempt < SEED_ATTEMPTS; attempt++) {
-            long seed = WorldOptions.randomSeed();
+        long seed = WorldOptions.randomSeed();
+        for (int attempt = 0; attempt < NAME_ATTEMPTS; attempt++) {
             String name = base + (attempt == 0 ? "" : "_r" + attempt);
             // A name the server already has a level for is never a candidate.
             // Creating one hands back the existing world and ignores the seed
@@ -393,14 +387,8 @@ public final class LobbyManager {
                 LOGGER.warn("candidate name {} is already a live dimension, skipping it", name);
                 continue;
             }
-            ServerLevel level = RuntimeDimension.create(server, name, seed);
-            BlockPos spawn = RuntimeDimension.findSpawn(level);
-            if (spawn != null || attempt == SEED_ATTEMPTS - 1) {
-                return new Candidate(name, seed,
-                    spawn != null ? spawn : RuntimeDimension.spawn(level));
-            }
-            LOGGER.info("seed {} is all water near the origin, trying another", seed);
-            RuntimeDimension.destroy(server, name, fallback);
+            ServerLevel level = RuntimeDimension.createFresh(server, name, seed);
+            return new Candidate(name, seed, RuntimeDimension.spawn(level));
         }
         return null;
     }

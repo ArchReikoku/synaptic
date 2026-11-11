@@ -89,7 +89,7 @@ public final class RunManager {
     public static void startNextRun(MinecraftServer server, long seed) {
         int session = SessionStats.session();
         String name = nameFor(session, SessionStats.run() + 1);
-        ServerLevel level = RuntimeDimension.create(server, name, seed);
+        ServerLevel level = RuntimeDimension.createFresh(server, name, seed);
         adopt(server, name, level, RuntimeDimension.spawn(level), seed);
     }
 
@@ -165,8 +165,10 @@ public final class RunManager {
         // level costs almost nothing until its chunks are asked for, and adding
         // one to the server's map from inside a block tick means editing the
         // collection the server is in the middle of ticking.
-        RuntimeDimension.create(server, name + "_nether", seed, LevelStem.NETHER);
-        RuntimeDimension.create(server, name + "_end", seed, LevelStem.END);
+        // Fresh, like the overworld: a new run's nether must not open on chunks
+        // some earlier world of the same name left behind.
+        RuntimeDimension.createFresh(server, name + "_nether", seed, LevelStem.NETHER);
+        RuntimeDimension.createFresh(server, name + "_end", seed, LevelStem.END);
         renameSave(server, session, run);
 
         if (leaving != null) destroyRun(server, leaving, level);

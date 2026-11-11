@@ -1,3 +1,47 @@
+# Testing the patchwork-world fix and nearest-land spawn
+
+Not committed, and `mod_version` not bumped. Server-side only, with no protocol change.
+
+**The bug:** sometimes a new world had a rectangle of different terrain around spawn, cut off by sheer walls.
+
+**Cause:** a new world was built on a folder that still held chunks from an earlier world of the same name. Those chunks loaded as they were, and everything around them generated from the new seed. Names got reused because `LobbyManager.begin` restarted the batch counter from its saved value. Worlds prepared during play (`prep_<batch>_<slot>`) before a restart were named again after it, and their folders were still on disk. Water made it more likely: on a wet seed, the old dry patch was what the spawn search landed on.
+
+**Changes:**
+- `LobbyManager.begin` claims a fresh batch number (`SessionStats.nextBatch()`), so names are never reused after a restart.
+- New `RuntimeDimension.createFresh` deletes any leftover folder under the name before building. It's used for lobby candidates, for prepared worlds, in `startNextRun`, and for a new run's nether and end. `restore` and the lazily-built companions still use plain `create`, because they need what's on disk.
+- **No more re-rolling wet seeds.** `buildCandidate` keeps the first seed. `findSpawn` now looks for the nearest dry land. It fully tries the 3×3 chunks around the origin. Beyond that, out to 64 chunks (about 1000 blocks), it uses `ChunkGenerator.getBaseHeight(OCEAN_FLOOR_WG)` to judge each chunk from the terrain noise without generating it, and generates at most 16 chunks that look dry to confirm one. If it finds nothing, it falls back to the origin as before.
+
+## What I tested myself, and the results
+
+| Check | Command / method | Result |
+| --- | --- | --- |
+| Shared code builds | `./gradlew :common:build` | ✅ Pass |
+| Fabric and NeoForge compile | `:fabric:compileJava :neoforge:compileJava` | ✅ Pass |
+| `ChunkGenerator.getBaseHeight`, `getSeaLevel`, `ServerChunkCache.randomState/getGenerator`, `PlayerSpawnFinder.getSpawnPosInChunk`, `ChunkPos.x()/getMiddleBlockX()` exist on both loaders | `javap` on Fabric's merged jar and NeoForge 102's patched jar | ✅ |
+| Terrain noise is per-run | `javap -c ChunkMap` | ✅ `RandomState` is built from `level.getSeed()`, which `ServerLevelSeedMixin` overrides |
+
+I did not test anything in-game.
+
+**Noticed, not changed:** `ServerLevel`'s constructor gives `StructureCheck` the *save's* seed (`WorldGenSettings.options().seed()`), not the run's. That might affect structure lookups such as `/locate` or explorer maps in runs. It doesn't affect terrain, and it's a separate issue.
+
+## How you should test
+
+1. **The patchwork bug is gone.** This is the reproduction:
+   1. Play a run for at least 10 seconds, so a few worlds get prepared in the background (one every 5 seconds).
+   2. Quit to the title screen and reopen the world.
+   3. Play another 10 seconds or so, then press Next run.
+   4. Repeat a few times. Look at each new world from above in spectator mode.
+   - **Pass:** no rectangles of mismatched terrain and no straight stone walls at chunk borders.
+   - The log may show `already has files on disk from an earlier world, clearing them`. That's the safety net catching a leftover folder, not an error.
+2. **Water seeds spawn on the nearest land.** Press Next run, then Recycle, many times.
+   - **Pass:** you never start in water. When the origin is ocean, you start on the nearest shore or island.
+   - Log lines like `seed … is all water near the origin, trying another` should no longer appear.
+3. **Lobby speed.** Opening a new lobby with no prepared worlds should take about as long as before or less. Wet seeds no longer cost several whole extra worlds.
+4. **Restart keeps the run.** Quit and reopen in the middle of a run.
+   - **Pass:** you're back in the same world, and the terrain beyond what you explored joins up seamlessly. This checks that `restore` doesn't wipe anything.
+
+---
+
 # Testing the lobby lock (no movement, other players invisible)
 
 Not committed, and `mod_version` not bumped. This is a client-side change, so the client needs the new jar. The network protocol is unchanged.
