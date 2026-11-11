@@ -59,18 +59,15 @@ public final class NeoForgePlatform implements Platform {
     /**
      * {@inheritDoc}
      * <p>
-     * <b>NeoForge does not tick the server's level map.</b> It ticks a copy of
-     * it, taken once and retaken only after {@code markWorldsDirty} — and
-     * nothing in NeoForge ever calls that, because nothing in NeoForge adds a
-     * level after startup. A run added without it is never ticked: no weather
-     * cycle, which is how it showed up ({@code /weather} changes the server's
-     * weather and the run never follows), and no mobs, crops or furnaces either.
-     * Vanilla, and so Fabric, loops over the live map and needs none of this.
+     * Up to 26.3.0.16-beta NeoForge ticked a cached copy of the level map and
+     * needed {@code markWorldsDirty()} before a run added during play was
+     * ticked at all. 26.3.0.102 removed both: {@code tickChildren} now loops
+     * over {@code getAllLevels()}, the live map, as vanilla and Fabric do, so
+     * nothing has to be invalidated any more. If a run stops following
+     * {@code /weather} again, look here first.
      */
     @Override
-    @SuppressWarnings("deprecation") // "Forge internal use only" — and exactly the use it is for.
     public void levelLoaded(MinecraftServer server, ServerLevel level) {
-        server.markWorldsDirty();
         // Posted rather than handed to a listener list, because on NeoForge the
         // event bus IS the listener list — a runtime dimension that skipped this
         // would be invisible to every other mod keeping per-level state.
@@ -80,15 +77,11 @@ public final class NeoForgePlatform implements Platform {
     /**
      * {@inheritDoc}
      * <p>
-     * The same copy the other way round: without marking it stale, a destroyed
-     * run stays in the tick loop and is ticked after it has been closed.
-     * Called just before the level leaves the map, which is fine — the copy is
-     * retaken lazily, on the next tick, by which time it is gone.
+     * The tick loop reads the live map (see {@link #levelLoaded}), so a run
+     * leaves it as soon as it is removed from the map.
      */
     @Override
-    @SuppressWarnings("deprecation")
     public void levelUnloaded(MinecraftServer server, ServerLevel level) {
-        server.markWorldsDirty();
         NeoForge.EVENT_BUS.post(new LevelEvent.Unload(level));
     }
 }

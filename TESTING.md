@@ -1,3 +1,46 @@
+# Testing the loader update (NeoForge 26.3.0.102, Fabric Loader 0.20.1)
+
+Minecraft stays on 26.3. Nothing is committed, and `mod_version` has not been bumped.
+
+| | Old | New |
+| --- | --- | --- |
+| NeoForge | 26.3.0.16-beta | 26.3.0.102 (first stable 26.3) |
+| ModDevGradle | 2.0.147 | 2.0.148 |
+| Fabric Loader | 0.19.5 | 0.20.1 |
+| Fabric API | 0.161.0+26.3 | 0.166.0+26.3 |
+| Loom, NeoForm, Mixin | unchanged | Loom 1.18 still untried. NeoForge 102 still names neoform `26.3-1` and Mixin `0.17.4+mixin.0.8.7`. |
+
+**Code change:** NeoForge 102 removed `MinecraftServer.markWorldsDirty()` along with the cached `worldArray` it invalidated. `tickChildren` now iterates `getAllLevels()`, the live map, as vanilla does. `NeoForgePlatform.levelLoaded/levelUnloaded` no longer call it, and they still post `LevelEvent.Load/Unload`.
+
+**Compatibility:** `neoforge.mods.toml` takes its NeoForge range from the property, so the new jar requires NeoForge **26.3.0.102 or later**.
+
+## What I tested myself, and the results
+
+| Check | Command / method | Result |
+| --- | --- | --- |
+| Shared code builds | `./gradlew :common:build` | ✅ Pass |
+| Fabric compiles | `./gradlew :fabric:compileJava` | ✅ Pass |
+| NeoForge compiles | `./gradlew :neoforge:compileJava` | ❌ at first (`markWorldsDirty` gone), then ✅ after the fix above |
+| Mixin target classes, old vs new NeoForge patched jar | `javap -p` diff | ✅ 16 classes identical. `MinecraftServer` and `PrimaryLevelData` changed, but the fields our accessors use (`levels`, `executor`, `storageSource`, `settings`) still exist. |
+| How NeoForge 102 ticks levels | `javap -c MinecraftServer.tickChildren` | ✅ It iterates `getAllLevels()`. No cached array is left. |
+
+I did not test anything in-game, and I did not test the Fabric side beyond compiling it.
+
+## How you should test
+
+1. **Smoke test on both loaders:** `./gradlew :fabric:runClient` and `./gradlew :neoforge:runClient`. Create a survival world.
+   - **Pass:** the world loads with no `Mixin apply failed` / `InvalidInjectionException` in the log.
+2. **NeoForge: runtime dimensions still tick.** This is the one behaviour the code change touches.
+   1. Start a run that creates a dimension during play.
+   2. Inside it, run `/weather rain`, then `/weather clear`.
+   3. Check that mobs move and a furnace smelts.
+   - **Pass:** the weather follows, and mobs and furnaces work.
+   - **Fail:** the run is frozen. Send me the log.
+3. **NeoForge: destroying a run.** End or destroy the run, then keep playing for a minute.
+   - **Pass:** no crash, and no exception about a closed level being ticked.
+
+---
+
 # Testing the six fixes
 
 These are the six fixes from the code review. Nothing is committed, and `mod_version` has not been bumped yet.
